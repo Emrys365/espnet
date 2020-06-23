@@ -141,6 +141,8 @@ def get_parser(parser=None, required=True):
                         help='Optimizer')
     parser.add_argument('--accum-grad', default=1, type=int,
                         help='Number of gradient accumuration')
+    parser.add_argument('--lr', default=1.0, type=float,
+                        help='Initial learning rate for optimizer')
     parser.add_argument('--eps', default=1e-8, type=float,
                         help='Epsilon constant for optimizer')
     parser.add_argument('--eps-decay', default=0.01, type=float,
@@ -236,6 +238,8 @@ def get_parser(parser=None, required=True):
     parser.add_argument('--ref-channel', type=int, default=-1,
                         help='The reference channel used for beamformer. '
                              'By default, the channel is estimated by DNN.')
+    parser.add_argument('--beamformer-type', type=str, default="mvdr", choices=["mvdr", "mpdr"],
+                        help='which beamforming implementation to be used')
     parser.add_argument('--bdropout-rate', type=float, default=0.0,
                         help='')
     # Feature transform: Normalization
@@ -258,6 +262,29 @@ def get_parser(parser=None, required=True):
                         help='')
     parser.add_argument('--fbank-fmax', type=float, default=None,
                         help='')
+
+    # xkc09 initialize asr model
+    parser.add_argument('--init-asr', default='', nargs='?',
+                        help='Initialze the asr model from')
+    parser.add_argument('--init-from-mdl', default='', nargs='?',
+                        help='Initialze from another model')
+    # wyz97 add category info to each minibatch
+    parser.add_argument('--multich-epochs', default=-1, type=int,
+                        help='From which epoch the multichannel data is used')
+    parser.add_argument('--with-category', type=strtobool, default=False,
+                        help='Include category info in each minibatch')
+    parser.add_argument('--init-frontend', default='', nargs='?',
+                        help='Initialze the frontend model from')
+    parser.add_argument('--wpe-iterations', type=int, default=1,
+                        help='iterations for performing WPE')
+    parser.add_argument('--use-wpe-for-mix', type=strtobool, default=False,
+                        help='Whether to separate mixture before WPE')
+    parser.add_argument('--use-beamforming-first', type=strtobool, default=False,
+                        help='Whether to perform beamforming before WPE')
+    parser.add_argument('--use-WPD-frontend', type=strtobool, default=False,
+                        help='use WPD frontend instead of WPE + MVDR beamformer')
+    parser.add_argument('--wpd-opt', type=float, default=1, choices=[1, 2, 3, 4, 5, 5.2, 6],
+                        help='which WPD implementation to be used')
     return parser
 
 
@@ -352,6 +379,7 @@ def main(cmd_args):
     else:
         # FIXME(kamo): Support --model-module
         if args.backend == "pytorch":
+            logging.warning('Multi-Speaker ASR training')
             from espnet.asr.pytorch_backend.asr_mix import train
             train(args)
         else:

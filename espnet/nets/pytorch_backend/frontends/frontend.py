@@ -3,6 +3,7 @@ from typing import Optional
 from typing import Tuple
 from typing import Union
 
+import logging
 import numpy
 import torch
 import torch.nn as nn
@@ -35,7 +36,9 @@ class Frontend(nn.Module):
                  bnmask: int = 2,
                  badim: int = 320,
                  ref_channel: int = -1,
-                 bdropout_rate=0.0):
+                 beamformer_type='mvdr',
+                 bdropout_rate=0.0,
+                 use_beamforming_first=False):
         super().__init__()
 
         self.use_beamformer = use_beamformer
@@ -43,6 +46,7 @@ class Frontend(nn.Module):
         self.use_dnn_mask_for_wpe = use_dnn_mask_for_wpe
         # use frontend for all the data, e.g. in the case of multi-speaker speech separation
         self.use_frontend_for_all = bnmask > 2
+        self.use_beamforming_first = use_beamforming_first
 
         if self.use_wpe:
             if self.use_dnn_mask_for_wpe:
@@ -75,12 +79,14 @@ class Frontend(nn.Module):
                                              bnmask=bnmask,
                                              dropout_rate=bdropout_rate,
                                              badim=badim,
-                                             ref_channel=ref_channel)
+                                             ref_channel=ref_channel,
+                                             beamformer_type=beamformer_type)
         else:
             self.beamformer = None
 
     def forward(self, x: ComplexTensor,
-                ilens: Union[torch.LongTensor, numpy.ndarray, List[int]])\
+                ilens: Union[torch.LongTensor, numpy.ndarray, List[int]],
+                masks=None)\
             -> Tuple[ComplexTensor, torch.LongTensor, Optional[ComplexTensor]]:
         assert len(x) == len(ilens), (len(x), len(ilens))
         # (B, T, F) or (B, T, C, F)
@@ -89,13 +95,16 @@ class Frontend(nn.Module):
         if not torch.is_tensor(ilens):
             ilens = torch.from_numpy(numpy.asarray(ilens)).to(x.device)
 
-        mask = None
+        mask = [None, None]
         h = x
         if h.dim() == 4:
             if self.training:
                 choices = [(False, False)] if not self.use_frontend_for_all else []
-                if self.use_wpe:
-                    choices.append((True, False))
+                if self.use_wpe and self.use_beamformer:
+                    choices.append((True, True))
+
+                #if self.use_wpe:
+                #    choices.append((True, False))
 
                 if self.use_beamformer:
                     choices.append((False, True))
@@ -107,15 +116,32 @@ class Frontend(nn.Module):
                 use_wpe = self.use_wpe
                 use_beamformer = self.use_beamformer
 
-            # 1. WPE
-            if use_wpe:
-                # h: (B, T, C, F) -> h: (B, T, C, F)
-                h, ilens, mask = self.wpe(h, ilens)
-
-            # 2. Beamformer
-            if use_beamformer:
+            if self.use_beamforming_first and use_beamformer:
+                # 1. Beamformer
                 # h: (B, T, C, F) -> h: (B, T, F)
-                h, ilens, mask = self.beamformer(h, ilens)
+                h, ilens, mask = self.beamformer(h, ilens, irms=masks)
+
+                h_s1, h_s2 = h
+                # (B, T, F) -> (B, T, C=1, F)
+                h_s1 = h_s1[..., None, :]
+                h_s2 = h_s2[..., None, :]
+                
+                # 2. WPE
+                if use_wpe:
+                    # h: (B, T, C, F) -> h: (B, T, C, F)
+                    h_s1, ilens, mask_s1 = self.wpe(h_s1, ilens)
+                    h_s2, ilens, mask_s2 = self.wpe(h_s2, ilens)
+                h = [h_s1, h_s2]
+            else:
+                # 1. WPE
+                if use_wpe:
+                    # h: (B, T, C, F) -> h: (B, T, C, F)
+                    h, ilens, mask = self.wpe(h, ilens)
+
+                # 2. Beamformer
+                if use_beamformer:
+                    # h: (B, T, C, F) -> h: (B, T, F)
+                    h, ilens, mask = self.beamformer(h, ilens, irms=masks)
 
         return h, ilens, mask
 
@@ -143,4 +169,6 @@ def frontend_for(args, idim):
         bnmask=args.bnmask,
         badim=args.badim,
         ref_channel=args.ref_channel,
-        bdropout_rate=args.bdropout_rate)
+        beamformer_type=args.beamformer_type,
+        bdropout_rate=args.bdropout_rate,
+        use_beamforming_first=args.use_beamforming_first)

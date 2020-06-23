@@ -121,6 +121,17 @@ v2: Experimental API. It supports any models that implements ScorerInterface.'''
     # speech translation related
     parser.add_argument('--tgt-lang', default=False, type=str,
                         help='target language ID (e.g., <en>, <de>, <fr> etc.)')
+    # Beamformer related
+    parser.add_argument('--use-beamformer', type=strtobool,
+                        default=True, help='')
+    parser.add_argument('--use-wpe-for-mix', type=strtobool, default=False,
+                        help='Whether to separate mixture before WPE')
+    parser.add_argument('--use-WPD-frontend', type=strtobool, default=False,
+                        help='use WPD frontend instead of WPE + MVDR beamformer')
+    parser.add_argument('--test-btaps', type=int, default=-1,
+                        help='use the specified btaps for testing')
+    parser.add_argument('--test-nmics', type=int, default=-1,
+                        help='use the specified number of microphones for testing')
     return parser
 
 

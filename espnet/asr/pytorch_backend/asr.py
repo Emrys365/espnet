@@ -38,6 +38,7 @@ import espnet.lm.pytorch_backend.extlm as extlm_pytorch
 from espnet.nets.asr_interface import ASRInterface
 from espnet.nets.pytorch_backend.e2e_asr import pad_list
 import espnet.nets.pytorch_backend.lm.default as lm_pytorch
+from espnet.nets.pytorch_backend.nets_utils import to_torch_tensor
 from espnet.nets.pytorch_backend.streaming.segment import SegmentStreamingE2E
 from espnet.nets.pytorch_backend.streaming.window import WindowStreamingE2E
 from espnet.transform.spectrogram import IStft
@@ -165,6 +166,8 @@ class CustomUpdater(StandardUpdater):
         self.grad_noise = grad_noise
         self.iteration = 0
         self.use_apex = use_apex
+        #----- added by wyz97
+        self.use_multich_data = True
 
     # The core part of the update routine can be customized by overriding.
     def update_core(self):
@@ -178,6 +181,10 @@ class CustomUpdater(StandardUpdater):
         batch = train_iter.next()
         # self.iteration += 1 # Increase may result in early report, which is done in other place automatically.
         x = self.converter(batch, self.device)
+
+        if (not self.use_multich_data) and to_torch_tensor(x[0]).dim() == 4:
+            # skip multichannel data
+            return
 
         # Compute the loss at this time step and accumulate it
         if self.ngpu == 0:

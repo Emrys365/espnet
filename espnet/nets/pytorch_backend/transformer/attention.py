@@ -58,3 +58,61 @@ class MultiHeadedAttention(nn.Module):
         x = torch.matmul(p_attn, v)  # (batch, head, time1, d_k)
         x = x.transpose(1, 2).contiguous().view(n_batch, -1, self.h * self.d_k)  # (batch, time1, d_model)
         return self.linear_out(x)  # (batch, time1, d_model)
+
+
+class MultiHeadedAttentionTimeRestricted(nn.Module):
+    """Multi-Head Attention layer
+
+    :param int n_head: the number of head s
+    :param int n_feat: the number of features
+    :param float dropout_rate: dropout rate
+    """
+
+    def __init__(self, n_head, n_feat, dropout_rate):
+        super(MultiHeadedAttentionTimeRestricted, self).__init__()
+        assert n_feat % n_head == 0
+        # We assume d_v always equals d_k
+        self.d_k = n_feat // n_head
+        self.h = n_head
+        self.linear_q = nn.Linear(n_feat, n_feat)
+        self.linear_k = nn.Linear(n_feat, n_feat)
+        self.linear_v = nn.Linear(n_feat, n_feat)
+        self.linear_out = nn.Linear(n_feat, n_feat)
+        self.attn = None
+        self.dropout = nn.Dropout(p=dropout_rate)
+
+    def forward(self, query, key, value, mask):
+        """Compute 'Scaled Dot Product Attention'
+
+        :param torch.Tensor query: (batch, time1, size)
+        :param torch.Tensor key: (batch, time1, time2, size)
+        :param torch.Tensor value: (batch, time1, time2, size)
+        :param torch.Tensor mask: (batch, 1, time1, time2)
+        :param torch.nn.Dropout dropout:
+        :return torch.Tensor: attentined and transformed `value` (batch, time1, d_model)
+             weighted by the query dot key attention (batch, head, time1, time2)
+        """
+        n_batch = query.size(0)
+        window = key.size(-2)
+        q = self.linear_q(query).view(n_batch, -1, self.h, self.d_k).unsqueeze(3)  # (batch, time1, head, 1, d_k)
+        k = self.linear_k(key).view(n_batch, -1, window, self.h, self.d_k)  # (batch, time1, window, head, d_k)
+        v = self.linear_v(value).view(n_batch, -1, window, self.h, self.d_k)  # (batch, time1, window, head, d_k)
+        q = q.permute(0, 2, 1, 3, 4)  # (batch, head, time1, 1, d_k)
+        k = k.permute(0, 3, 1, 2, 4)  # (batch, head, time1, window, d_k)
+        v = v.permute(0, 3, 1, 2, 4)  # (batch, head, time1, window, d_k)
+
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)  # (batch, head, time1, 1, window)
+        scores = scores.squeeze(3)  # (batch, head, time1, window)
+        if mask is not None:
+            #mask = mask.unsqueeze(1).eq(0)  # (batch, 1, time1, time2)
+            mask = mask.eq(0)  # (batch, time1, 1, time2)
+            min_value = float(numpy.finfo(torch.tensor(0, dtype=scores.dtype).numpy().dtype).min)
+            scores = scores.masked_fill(mask, min_value)
+            self.attn = torch.softmax(scores, dim=-1).masked_fill(mask, 0.0)  # (batch, head, time1, window)
+        else:
+            self.attn = torch.softmax(scores, dim=-1)  # (batch, head, time1, window)
+
+        p_attn = self.dropout(self.attn)
+        x = torch.matmul(p_attn.unsqueeze(-2), v).squeeze(-2)  # (batch, head, time1, d_k)
+        x = x.transpose(1, 2).contiguous().view(n_batch, -1, self.h * self.d_k)  # (batch, time1, d_model)
+        return self.linear_out(x)  # (batch, time1, d_model)

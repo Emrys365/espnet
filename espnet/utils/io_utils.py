@@ -46,6 +46,7 @@ class LoadInputsAndTargets(object):
                  use_second_target=False,
                  preprocess_args=None,
                  keep_all_data_on_mem=False,
+                 test_nmics=-1,
                  ):
         self._loaders = {}
         if mode not in ['asr', 'tts', 'mt']:
@@ -82,6 +83,9 @@ class LoadInputsAndTargets(object):
             self.preprocess_args = dict(preprocess_args)
 
         self.keep_all_data_on_mem = keep_all_data_on_mem
+        self.test_nmics = test_nmics
+        if self.test_nmics > 0:
+            logging.warning('Using %d microphones for testing.' % self.test_nmics)
 
     def __call__(self, batch):
         """Function to load inputs and targets from list of dicts
@@ -213,7 +217,7 @@ class LoadInputsAndTargets(object):
             # sort in input lengths based on the first input
             nonzero_sorted_idx = sorted(nonzero_idx, key=lambda i: -len(xs[0][i]))
         else:
-            nonzero_sorted_idx = nonzero_idx
+            nonzero_sorted_idx = list(nonzero_idx)
 
         if len(nonzero_sorted_idx) != len(xs[0]):
             logging.warning(
@@ -221,7 +225,11 @@ class LoadInputsAndTargets(object):
                 .format(len(xs[0]), len(nonzero_sorted_idx)))
 
         # remove zero-length samples
-        xs = [[x[i] for i in nonzero_sorted_idx] for x in xs]
+        if self.test_nmics > 0:
+            # x (time, channel) --> (time, self.test_nmics)
+            xs = [[x[i][:, :self.test_nmics] for i in nonzero_sorted_idx] for x in xs]
+        else:
+            xs = [[x[i] for i in nonzero_sorted_idx] for x in xs]
         uttid_list = [uttid_list[i] for i in nonzero_sorted_idx]
 
         x_names = list(x_feats_dict.keys())
@@ -263,7 +271,7 @@ class LoadInputsAndTargets(object):
             # sort in input lengths
             nonzero_sorted_idx = sorted(nonzero_idx, key=lambda i: -len(xs[i]))
         else:
-            nonzero_sorted_idx = nonzero_idx
+            nonzero_sorted_idx = list(nonzero_idx)
 
         if len(nonzero_sorted_idx) != len(xs):
             logging.warning(

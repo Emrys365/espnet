@@ -64,10 +64,26 @@ def get_mvdr_vector(psd_s: ComplexTensor,
     eye = torch.eye(C, dtype=psd_n.dtype, device=psd_n.device)
     shape = [1 for _ in range(psd_n.dim() - 2)] + [C, C]
     eye = eye.view(*shape)
-    psd_n += eps * eye
+    try:
+        psd_n_i = (psd_n + eps * eye).inverse()
+    except:
+        eps2 = 1e-4
+        try:
+            psd_n = psd_n / 10e+4
+            psd_s = psd_s / 10e+4
+            psd_n += eps2 * eye
+            psd_n_i = psd_n.inverse()
+        except:
+            try:
+                psd_n = psd_n / 10e+10
+                psd_s = psd_s / 10e+10
+                psd_n += eps2 * eye
+                psd_n_i = psd_n.inverse()
+            except:
+                raise Exception('psd not invertable.')
 
     # numerator: (..., C_1, C_2) x (..., C_2, C_3) -> (..., C_1, C_3)
-    numerator = FC.einsum('...ec,...cd->...ed', [psd_n.inverse(), psd_s])
+    numerator = FC.einsum('...ec,...cd->...ed', [psd_n_i, psd_s])
     # ws: (..., C, C) / (...,) -> (..., C, C)
     ws = numerator / (FC.trace(numerator)[..., None, None] + eps)
     # h: (..., F, C_1, C_2) x (..., C_2) -> (..., F, C_1)

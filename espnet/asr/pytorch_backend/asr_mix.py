@@ -19,6 +19,7 @@ from tensorboardX import SummaryWriter
 import torch
 
 from espnet.asr.asr_mix_utils import add_results_to_json
+from espnet.asr.asr_mix_utils import add_results_to_json_wer
 from espnet.asr.asr_utils import adadelta_eps_decay
 
 from espnet.asr.asr_utils import CompareValueTrigger
@@ -34,9 +35,10 @@ from espnet.asr.pytorch_backend.asr import load_trained_model
 import espnet.lm.pytorch_backend.extlm as extlm_pytorch
 from espnet.nets.asr_interface import ASRInterface
 from espnet.nets.pytorch_backend.e2e_asr import pad_list
-from espnet.nets.pytorch_backend.e2e_asr_mix import E2E
+#from espnet.nets.pytorch_backend.e2e_asr_mix import E2E
 import espnet.nets.pytorch_backend.lm.default as lm_pytorch
 from espnet.utils.deterministic_utils import set_deterministic_pytorch
+from espnet.utils.dynamic_import import dynamic_import
 from espnet.utils.io_utils import LoadInputsAndTargets
 from espnet.utils.training.batchfy import make_batchset
 from espnet.utils.training.iterators import ShufflingEnabler
@@ -116,6 +118,80 @@ class CustomConverter(object):
         return xs_pad, ilens, ys_pad
 
 
+def schedule_multich_data(epoch_list):
+    """Determine when to introduce the multichannel data, scheduled on epoch_list.
+
+    Example usage:
+    trainer.extend(schedule_multich_data(3))
+    """
+    if not isinstance(epoch_list, list):
+        assert isinstance(epoch_list, float) or isinstance(epoch_list, int)
+        epoch_list = [epoch_list, ]
+
+    trigger = training.triggers.ManualScheduleTrigger(epoch_list, 'epoch')
+    # count = 0
+
+    @training.extension.make_extension(trigger=trigger)
+    def set_value(trainer):
+        # nonlocal count
+        updater = trainer.updater
+        print('[epoch {}] updater.use_multich_data: {} -> True'.format(
+              updater.epoch_detail, updater.use_multich_data))
+        setattr(updater, 'use_multich_data', True)
+        # count += 1
+
+    return set_value
+
+
+def load_pretrained_modules(model_path, target_model, match_keys, freeze_parms=False):
+    src_model_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+    tgt_model_dict = target_model.state_dict()
+
+    from collections import OrderedDict
+    import re
+    print('initialize: ', match_keys)
+    filtered_keys = filter(lambda x: re.search(match_keys, x[0]), src_model_dict.items())
+    filtered_dict = OrderedDict()
+    for key, v in filtered_keys:
+        filtered_dict[key] = v
+
+    tgt_model_dict.update(filtered_dict)
+    target_model.load_state_dict(tgt_model_dict)
+
+    if freeze_parms:
+        for name, param in target_model.named_parameters():
+            if name in filtered_dict:
+                param.requires_grad = False
+
+    return target_model
+
+
+def init_wpd_model_from_mvdr_wpe(model_path, target_model, freeze_parms=False):
+    src_model_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+    tgt_model_dict = target_model.state_dict()
+
+    from collections import OrderedDict
+    import re
+    filtered_dict = OrderedDict()
+    for key, v in src_model_dict.items():
+        if 'frontend.beamformer' in key:
+            key2 = re.sub(r'frontend.beamformer', 'frontend', key)
+            if key2 in tgt_model_dict:
+                filtered_dict[key2] = v
+        elif key in tgt_model_dict:
+            filtered_dict[key] = v
+
+    tgt_model_dict.update(filtered_dict)
+    target_model.load_state_dict(tgt_model_dict)
+
+    if freeze_parms:
+        for name, param in target_model.named_parameters():
+            if name in filtered_dict and re.search(r'(encoder|decoder|ctc)', name):
+                    param.requires_grad = False
+
+    return target_model
+
+
 def train(args):
     """Train with the given args.
 
@@ -124,6 +200,7 @@ def train(args):
 
     """
     set_deterministic_pytorch(args)
+#    torch.autograd.set_detect_anomaly(True)     # for debug
 
     # check cuda availability
     if not torch.cuda.is_available():
@@ -150,8 +227,37 @@ def train(args):
         logging.info('Multitask learning mode')
 
     # specify model architecture
-    model = E2E(idim, odim, args)
+    #model = E2E(idim, odim, args)
+    model_class = dynamic_import(args.model_module)
+    model = model_class(idim, odim, args)
+    assert isinstance(model, ASRInterface)
     subsampling_factor = model.subsample[0]
+    logging.warning('E2E model:\n{}'.format(model))
+
+    # load pretrained model
+    if args.init_from_mdl:
+        init_wpd_model_from_mvdr_wpe(args.init_from_mdl, model, freeze_parms=True)
+        logging.info("Loading pretrained model " + args.init_from_mdl)
+    elif args.init_frontend and args.init_asr:
+        match_keys = r'^frontend\..*' #r'\.enc\..*' # r'^(?!.*enc_sd).*$'
+        load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=False)
+        match_keys = r'(encoder|decoder|ctc)'
+        #match_keys = r'^(?!.*frontend).*'
+        load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=True)
+#        torch_load(args.init_model_path, model)
+        logging.info("Loading pretrained model " + args.init_frontend + " and " + args.init_asr)
+    elif args.init_frontend:
+        match_keys = r'^frontend\..*' #r'\.enc\..*' # r'^(?!.*enc_sd).*$'
+        load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=False)
+#        torch_load(args.init_model_path, model)
+        logging.info("Loading pretrained model " + args.init_frontend)
+    elif args.init_asr:
+        #match_keys = r'^(?!.*frontend).*' #r'\.enc\..*' # r'^(?!.*enc_sd).*$'
+        #load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=False)
+        match_keys = r'(encoder|decoder|ctc)'
+        load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=True)
+#        torch_load(args.init_model_path, model)
+        logging.info("Loading pretrained model " + args.init_asr)
 
     if args.rnnlm is not None:
         rnnlm_args = get_model_conf(args.rnnlm, args.rnnlm_conf)
@@ -192,7 +298,7 @@ def train(args):
     # Setup an optimizer
     if args.opt == 'adadelta':
         optimizer = torch.optim.Adadelta(
-            model.parameters(), rho=0.95, eps=args.eps,
+            model.parameters(), lr=args.lr, rho=0.95, eps=args.eps,
             weight_decay=args.weight_decay)
     elif args.opt == 'adam':
         optimizer = torch.optim.Adam(model.parameters(),
@@ -256,11 +362,13 @@ def train(args):
 
     load_tr = LoadInputsAndTargets(
         mode='asr', load_output=True, preprocess_conf=args.preprocess_conf,
-        preprocess_args={'train': True}  # Switch the mode of preprocessing
+        preprocess_args={'train': True},  # Switch the mode of preprocessing
+        test_nmics=getattr(args, 'test_nmics', -1)
     )
     load_cv = LoadInputsAndTargets(
         mode='asr', load_output=True, preprocess_conf=args.preprocess_conf,
-        preprocess_args={'train': False}  # Switch the mode of preprocessing
+        preprocess_args={'train': False},  # Switch the mode of preprocessing
+        test_nmics=getattr(args, 'test_nmics', -1)
     )
     # hack to make batchsize argument as 1
     # actual bathsize is included in a list
@@ -269,6 +377,7 @@ def train(args):
             TransformDataset(train, load_tr),
             batch_size=1, n_processes=args.n_iter_processes, n_prefetch=8, maxtasksperchild=20,
             shuffle=not use_sortagrad)
+#            shuffle=False)
         valid_iter = ToggleableShufflingMultiprocessIterator(
             TransformDataset(valid, load_cv),
             batch_size=1, repeat=False, shuffle=False,
@@ -277,6 +386,7 @@ def train(args):
         train_iter = ToggleableShufflingSerialIterator(
             TransformDataset(train, load_tr),
             batch_size=1, shuffle=not use_sortagrad)
+#            batch_size=1, shuffle=False)
         valid_iter = ToggleableShufflingSerialIterator(
             TransformDataset(valid, load_cv),
             batch_size=1, repeat=False, shuffle=False)
@@ -322,6 +432,12 @@ def train(args):
                                           'main/loss_ctc', 'validation/main/loss_ctc',
                                           'main/loss_att', 'validation/main/loss_att'],
                                          'epoch', file_name='loss.png'))
+    trainer.extend(extensions.PlotReport(['main/loss', 'validation/main/loss'],
+                                         'epoch', file_name='loss_main.png'))
+    trainer.extend(extensions.PlotReport(['main/loss_ctc', 'validation/main/loss_ctc'],
+                                         'epoch', file_name='loss_ctc.png'))
+    trainer.extend(extensions.PlotReport(['main/loss_att', 'validation/main/loss_att'],
+                                         'epoch', file_name='loss_att.png'))
     trainer.extend(extensions.PlotReport(['main/acc', 'validation/main/acc'],
                                          'epoch', file_name='acc.png'))
     trainer.extend(extensions.PlotReport(['main/cer_ctc', 'validation/main/cer_ctc'],
@@ -336,6 +452,25 @@ def train(args):
 
     # save snapshot which contains model and optimizer states
     trainer.extend(torch_snapshot(), trigger=(1, 'epoch'))
+
+    # Frontend require_grad after 6 epochs
+    def resume_require_grad():
+        @training.extension.make_extension(trigger=(6, 'epoch'), priority=-100)
+        def set_require_grad(trainer):
+            for parm in trainer.updater.model.parameters():
+                parm.requires_grad = True
+        return set_require_grad
+    if args.init_from_mdl or args.init_asr:
+        trainer.extend(resume_require_grad(), trigger=(6, 'epoch'))
+
+    # set 
+    if args.multich_epochs >= 0:
+        t_epochs = list(range(args.multich_epochs, args.epochs))
+        assert len(t_epochs) > 0
+        updater.use_multich_data = False
+        trainer.extend(schedule_multich_data(t_epochs))
+    else:
+        updater.use_multich_data = True
 
     # epsilon decay in the optimizer
     if args.opt == 'adadelta':
@@ -395,9 +530,24 @@ def recog(args):
 
     """
     set_deterministic_pytorch(args)
-    model, train_args = load_trained_model(args.model)
+    if args.model_conf is not None:
+        idim, odim, train_args = get_model_conf(args.model, args.model_conf)
+        logging.info('reading model parameters from ' + args.model)
+
+        if hasattr(train_args, "model_module"):
+            model_module = train_args.model_module
+        else:
+            model_module = "espnet.nets.pytorch_backend.e2e_asr:E2E"
+        model_class = dynamic_import(model_module)
+        model = model_class(idim, odim, train_args)
+        torch_load(args.model, model)
+    else:
+        model, train_args = load_trained_model(args.model)
     assert isinstance(model, ASRInterface)
     model.recog_args = args
+    if getattr(args, 'test_btaps', -1) > 0:
+        model.frontend.btaps = args.test_btaps
+        logging.warning('setting btaps to {}'.format(model.frontend.btaps))
 
     # read rnnlm
     if args.rnnlm:
@@ -444,10 +594,11 @@ def recog(args):
     new_js = {}
 
     load_inputs_and_targets = LoadInputsAndTargets(
-        mode='asr', load_output=False, sort_in_input_length=False,
+        mode='asr', load_output=True, sort_in_input_length=False,
         preprocess_conf=train_args.preprocess_conf
         if args.preprocess_conf is None else args.preprocess_conf,
-        preprocess_args={'train': False})
+        preprocess_args={'train': False},
+        test_nmics=getattr(args, 'test_nmics', -1))
 
     if args.batchsize == 0:
         with torch.no_grad():
@@ -470,16 +621,36 @@ def recog(args):
             sorted_index = sorted(range(len(feat_lens)), key=lambda i: -feat_lens[i])
             keys = [keys[i] for i in sorted_index]
 
+        setattr(args, "space", train_args.sym_space)
+        setattr(args, "blank", train_args.sym_blank)
+        errors = dict()
+        wers, cers = [], []
         with torch.no_grad():
             for names in grouper(args.batchsize, keys, None):
                 names = [name for name in names if name]
                 batch = [(name, js[name]) for name in names]
-                feats = load_inputs_and_targets(batch)[0]
+                feats, labels = load_inputs_and_targets(batch)
+#                wer, cer = model.calculate_error_batch(feats, list(labels), args, train_args.char_list, rnnlm=rnnlm)
+#                # only report mean wer and cer for each batch
+#                for name in names:
+#                    errors[name] = {'cer': cer, 'wer': wer}
+#                wers.append(wer)
+#                cers.append(cer)
+#
+#        mean_wer = sum(wers) / float(len(wers))
+#        mean_cer = sum(cers) / float(len(cers))
+#
+#        with open(args.result_label, 'wb') as f:
+#            f.write('wer: {}\ncer: {}\n'.format(mean_wer, mean_cer).encode('utf_8'))
+#            f.write(json.dumps({'utts': errors}, indent=4, ensure_ascii=False, sort_keys=True).encode('utf_8'))
+#        return
+
                 nbest_hyps = model.recognize_batch(feats, args, train_args.char_list, rnnlm=rnnlm)
 
                 for i, name in enumerate(names):
                     nbest_hyp = [hyp[i] for hyp in nbest_hyps]
                     new_js[name] = add_results_to_json(js[name], nbest_hyp, train_args.char_list)
+                    # new_js[name] = add_results_to_json_wer(js[name], nbest_hyp, list(labels), train_args.char_list)
 
     with open(args.result_label, 'wb') as f:
         f.write(json.dumps({'utts': new_js}, indent=4, ensure_ascii=False, sort_keys=True).encode('utf_8'))

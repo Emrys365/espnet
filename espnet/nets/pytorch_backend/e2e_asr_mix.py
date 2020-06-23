@@ -191,8 +191,51 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
             # Relative importing because of using python3 syntax
             from espnet.nets.pytorch_backend.frontends.feature_transform \
                 import feature_transform_for
-            from espnet.nets.pytorch_backend.frontends.frontend \
-                import frontend_for
+            #-------- added by wyz97
+            if args.use_WPD_frontend:
+                if args.wpd_opt == 1:
+                    logging.warning('using WPD frontend (ver 1)')
+                    logging.warning('   use the AttentionReference to calculate the steering vector for each frequency band (attend along the channel dimension)')
+                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v1 \
+                        import frontend_for
+                elif args.wpd_opt == 2:
+                    logging.warning('using WPD frontend (ver 2)')
+                    logging.warning('   use the AttentionReference to calculate the steering vector, sharing the same values in all frequency bands (attend along the frequency dimension)')
+                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v2 \
+                        import frontend_for
+                elif args.wpd_opt == 3:
+                    logging.warning('using WPD frontend (ver 3)')
+                    logging.warning('   use the original WPD formulas to calculate the steering vector (MaxEigenVector)')
+                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v3 \
+                        import frontend_for
+                elif args.wpd_opt == 4:
+                    logging.warning('using WPD frontend (ver 4)')
+                    logging.warning('   use the modified WPD formulas to calculate the steering vector (MaxEigenVector with Cholesky decomposition)')
+                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v4 \
+                        import frontend_for
+                elif args.wpd_opt == 5:
+                    logging.warning('using WPD frontend (ver 5)')
+                    logging.warning('   use the simplified WPD formulas (MPDR) to get rid of explicit dependence of the steering vector')
+                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v5 \
+                        import frontend_for
+                elif args.wpd_opt == 5.2:
+                    logging.warning('using WPD frontend (ver 5.2)')
+                    logging.warning('   use the simplified WPD formulas (MPDR, 2 mask estimators) to get rid of explicit dependence of the steering vector')
+                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v5_2 \
+                        import frontend_for
+                elif args.wpd_opt == 6:
+                    logging.warning('using WPD frontend (ver 6)')
+                    logging.warning('   use the simplified WPD formulas (MVDR) to get rid of explicit dependence of the steering vector')
+                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v6 \
+                        import frontend_for
+            elif args.use_wpe_for_mix:
+                logging.warning('using MIMO-Reverb-Speech arch2 frontend')
+                from espnet.nets.pytorch_backend.frontends.frontend_for_mix \
+                    import frontend_for
+            else:
+                logging.warning('using MIMO-Reverb-Speech arch1 frontend')
+                from espnet.nets.pytorch_backend.frontends.frontend \
+                    import frontend_for
 
             self.frontend = frontend_for(args, idim)
             self.feature_transform = feature_transform_for(args, (idim - 1) * 2)
@@ -292,6 +335,8 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         :rtype: float
         """
         # 0. Frontend
+#        s = '\n'
+#        s += 'hlens:\n  {}'.format(ilens)
         if self.frontend is not None:
             hs_pad, hlens, mask = self.frontend(to_torch_tensor(xs_pad), ilens)
             if isinstance(hs_pad, list):
@@ -303,6 +348,7 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
                 hs_pad, hlens = self.feature_transform(hs_pad, hlens)
         else:
             hs_pad, hlens = xs_pad, ilens
+#        s += '\n  -(frontend)-> {}'.format(hlens)
 
         # 1. Encoder
         if not isinstance(hs_pad, list):  # single-channel input xs_pad (single- or multi-speaker)
@@ -310,6 +356,11 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         else:  # multi-channel multi-speaker input xs_pad
             for i in range(self.num_spkrs):
                 hs_pad[i], hlens[i], _ = self.enc(hs_pad[i], hlens[i])
+#        s += '\n  -(encoder)-> {}'.format(hlens)
+#        ylens = torch.LongTensor([len(y[y != -1]) for y in ys_pad])
+#        s += '\nylens:\n  {}'.format(ylens)
+#        s += '\nys_pad:\n  {}'.format(ys_pad)
+#        logging.warning(s)
 
         # 2. CTC loss
         if self.mtlalpha == 0:
@@ -408,7 +459,13 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         if loss_data < CTC_LOSS_THRESHOLD and not math.isnan(loss_data):
             self.reporter.report(loss_ctc_data, loss_att_data, acc, cer, wer, loss_data)
         else:
-            logging.warning('loss (=%f) is not correct', loss_data)
+            logging.warning('loss (={}) is not correct: loss_ctc={}'.format(loss_data, loss_ctc_data))
+#            logging.warning('loss (={}) is not correct: loss_ctc={}, loss_att={}'.format(loss_data, loss_ctc_data, loss_att_data))
+#            if loss_ctc_data and (np.isnan(loss_ctc_data) or np.isinf(loss_ctc_data)):
+#                ylens = torch.LongTensor([len(y[y != -1]) for y in ys_pad])
+#                if torch.any(ylens > torch.LongTensor(hlens)):
+#                    logging.warning('\\___ xs_pad: {}, hs_pad: {}, ys_pad: {}'.format(ilens, hlens, ylens))
+
         return self.loss
 
     def recognize(self, x, recog_args, char_list, rnnlm=None):
@@ -436,7 +493,11 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
             hs, hlens, mask = self.frontend(hs, ilens)
             hlens_n = [None] * self.num_spkrs
             for i in range(self.num_spkrs):
-                hs[i], hlens_n[i] = self.feature_transform(hs[i], hlens)
+                try:
+                    hs[i], hlens_n[i] = self.feature_transform(hs[i], hlens)
+                except:
+                    print('x:{}, h:{}, hs:{}'.format(x.shape, h.shape, [x.shape for x in hs]))
+                    raise ValueError(hs)
             hlens = hlens_n
         else:
             hs, hlens = hs, ilens
@@ -485,10 +546,13 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         # 0. Frontend
         if self.frontend is not None:
             hs_pad, hlens, mask = self.frontend(xs_pad, ilens)
-            hlens_n = [None] * self.num_spkrs
-            for i in range(self.num_spkrs):
-                hs_pad[i], hlens_n[i] = self.feature_transform(hs_pad[i], hlens)
-            hlens = hlens_n
+            if isinstance(hs_pad, list):
+                hlens_n = [None] * self.num_spkrs
+                for i in range(self.num_spkrs):
+                    hs_pad[i], hlens_n[i] = self.feature_transform(hs_pad[i], hlens)
+                hlens = hlens_n
+            else:
+                hs_pad, hlens = self.feature_transform(hs_pad, hlens)
         else:
             hs_pad, hlens = xs_pad, ilens
 
@@ -515,6 +579,108 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         if prev:
             self.train()
         return y
+
+    def calculate_error_batch(self, xs, ys, recog_args, char_list, rnnlm=None):
+        """E2E WER and CER calculation via beam search.
+
+        :param ndarray xs: input acoustic feature (B, T, D)
+        :param torch.Tensor ys: batch of padded character id sequence tensor List[Tuple[ys_spk1, ys_spk2]]
+        :param Namespace recog_args: argument Namespace containing options
+        :param list char_list: list of characters
+        :param torch.nn.Module rnnlm: language model module
+        :return: float WER
+        :return: float CER
+        """
+        prev = self.training
+        self.eval()
+        ilens = np.fromiter((xx.shape[0] for xx in xs), dtype=np.int64)
+
+        # subsample frame
+        xs = [xx[::self.subsample[0], :] for xx in xs]
+        xs = [to_device(self, to_torch_tensor(xx).float()) for xx in xs]
+        xs_pad = pad_list(xs, 0.0)
+
+        if not isinstance(ys[0], np.ndarray):
+            ys_pad = [torch.from_numpy(y[0]).long() for y in ys] + [torch.from_numpy(y[1]).long() for y in ys]
+            ys_pad = pad_list(ys_pad, -1)
+            ys_pad = ys_pad.view(2, -1, ys_pad.size(1)).to(xs_pad.device)  # (num_spkrs, B, Tmax)
+        else:
+            ys_pad = pad_list([torch.from_numpy(y).long() for y in ys], -1).transpose(0, 1).to(xs_pad.device)
+        # logging.warning('ys: {}'.format(list(ys)))
+        # logging.warning('ys_pad: {}'.format(ys_pad.shape))
+
+        # 0. Frontend
+        if self.frontend is not None:
+            hs_pad, hlens, mask = self.frontend(xs_pad, ilens)
+            if isinstance(hs_pad, list):
+                hlens_n = [None] * self.num_spkrs
+                for i in range(self.num_spkrs):
+                    hs_pad[i], hlens_n[i] = self.feature_transform(hs_pad[i], hlens)
+                hlens = hlens_n
+            else:
+                hs_pad, hlens = self.feature_transform(hs_pad, hlens)
+        else:
+            hs_pad, hlens = xs_pad, ilens
+
+        # 1. Encoder
+        if not isinstance(hs_pad, list):  # single-channel multi-speaker input x
+            hs_pad, hlens, _ = self.enc(hs_pad, hlens)
+        else:  # multi-channel multi-speaker input x
+            for i in range(self.num_spkrs):
+                hs_pad[i], hlens[i], _ = self.enc(hs_pad[i], hlens[i])
+
+        # calculate log P(z_t|X) for CTC scores
+        if recog_args.ctc_weight > 0.0:
+            lpz = [self.ctc.log_softmax(hs_pad[i]) for i in range(self.num_spkrs)]
+            normalize_score = False
+        else:
+            lpz = None
+            normalize_score = True
+
+        # 2. decoder
+        word_eds, char_eds, word_ref_lens, char_ref_lens = [], [], [], []
+        nbest_hyps = [self.dec.recognize_beam_batch(hs_pad[i], hlens[i], lpz[i], recog_args, char_list,
+                                                    rnnlm, normalize_score=normalize_score, strm_idx=i)
+                      for i in range(self.num_spkrs)]
+
+        # remove <sos> and <eos>
+        y_hats = [[nbest_hyp[0]['yseq'][1:-1] for nbest_hyp in nbest_hyps[i]] for i in range(self.num_spkrs)]
+        for i in range(len(y_hats[0])):
+            hyp_words = []
+            hyp_chars = []
+            ref_words = []
+            ref_chars = []
+            for ns in range(self.num_spkrs):
+                y_hat = y_hats[ns][i]
+                y_true = ys_pad[ns][i]
+
+                seq_hat = [char_list[int(idx)] for idx in y_hat if int(idx) != -1]
+                seq_true = [char_list[int(idx)] for idx in y_true if int(idx) != -1]
+                seq_hat_text = "".join(seq_hat).replace(recog_args.space, ' ')
+                seq_hat_text = seq_hat_text.replace(recog_args.blank, '')
+                seq_true_text = "".join(seq_true).replace(recog_args.space, ' ')
+
+                hyp_words.append(seq_hat_text.split())
+                ref_words.append(seq_true_text.split())
+                hyp_chars.append(seq_hat_text.replace(' ', ''))
+                ref_chars.append(seq_true_text.replace(' ', ''))
+
+            tmp_word_ed = [editdistance.eval(hyp_words[ns // self.num_spkrs], ref_words[ns % self.num_spkrs])
+                           for ns in range(self.num_spkrs ** 2)]  # h1r1,h1r2,h2r1,h2r2
+            tmp_char_ed = [editdistance.eval(hyp_chars[ns // self.num_spkrs], ref_chars[ns % self.num_spkrs])
+                           for ns in range(self.num_spkrs ** 2)]  # h1r1,h1r2,h2r1,h2r2
+
+            word_eds.append(self.pit.min_pit_sample(torch.tensor(tmp_word_ed))[0])
+            word_ref_lens.append(len(sum(ref_words, [])))
+            char_eds.append(self.pit.min_pit_sample(torch.tensor(tmp_char_ed))[0])
+            char_ref_lens.append(len(''.join(ref_chars)))
+
+        wer = float(sum(word_eds)) / sum(word_ref_lens)
+        cer = float(sum(char_eds)) / sum(char_ref_lens)
+
+        if prev:
+            self.train()
+        return wer, cer
 
     def enhance(self, xs):
         """Forward only the frontend stage.
@@ -555,31 +721,43 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
             2) other case => attention weights (B, Lmax, Tmax).
         :rtype: float ndarray
         """
+        prev = self.training
+        self.eval()
         with torch.no_grad():
             # 0. Frontend
             if self.frontend is not None:
                 hs_pad, hlens, mask = self.frontend(to_torch_tensor(xs_pad), ilens)
-                hlens_n = [None] * self.num_spkrs
-                for i in range(self.num_spkrs):
-                    hs_pad[i], hlens_n[i] = self.feature_transform(hs_pad[i], hlens)
-                hlens = hlens_n
+                if isinstance(hs_pad, list):
+                    logging.warning('xs_pad is multi-channel input.')
+                    hlens_n = [None] * self.num_spkrs
+                    for i in range(self.num_spkrs):
+                        hs_pad[i], hlens_n[i] = self.feature_transform(hs_pad[i], hlens)
+                    hlens = hlens_n
+                else:
+                    logging.warning('xs_pad is single-channel input.')
+                    hs_pad, hlens = self.feature_transform(hs_pad, hlens)
             else:
                 hs_pad, hlens = xs_pad, ilens
 
             # 1. Encoder
             if not isinstance(hs_pad, list):  # single-channel multi-speaker input x
+                logging.warning('ASR feature is single-speaker input.')
                 hs_pad, hlens, _ = self.enc(hs_pad, hlens)
             else:  # multi-channel multi-speaker input x
+                logging.warning('ASR feature is multi-speaker input.')
                 for i in range(self.num_spkrs):
                     hs_pad[i], hlens[i], _ = self.enc(hs_pad[i], hlens[i])
 
             # Permutation
             ys_pad = ys_pad.transpose(0, 1)  # (num_spkrs, B, Lmax)
-            if self.num_spkrs <= 3:
+            #logging.warning('xs_pad: {}, hs_pad: {}, ilens: {}, hlens: {}, ys_pad: {}'.format(to_torch_tensor(xs_pad).shape, [h.shape for h in hs_pad], ilens, hlens, ys_pad.shape))
+            if not isinstance(hs_pad, list):  # single-speaker input xs_pad
+                loss_ctc = torch.mean(self.ctc(hs_pad, hlens, ys_pad))
+            else:
                 loss_ctc = torch.stack([self.ctc(hs_pad[i // self.num_spkrs],
                                                  hlens[i // self.num_spkrs],
                                                  ys_pad[i % self.num_spkrs])
-                                        for i in range(self.num_spkrs ** 2)], 1)  # (B, num_spkrs^2)
+                                        for i in range(self.num_spkrs ** 2)], dim=1)  # (B, num_spkrs^2)
                 loss_ctc, min_perm = self.pit.pit_process(loss_ctc)
             for i in range(ys_pad.size(1)):  # B
                 ys_pad[:, i] = ys_pad[min_perm[i], i]
@@ -588,6 +766,8 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
             att_ws = [self.dec.calculate_all_attentions(hs_pad[i], hlens[i], ys_pad[i], strm_idx=i)
                       for i in range(self.num_spkrs)]
 
+        if prev:
+            self.train()
         return att_ws
 
 

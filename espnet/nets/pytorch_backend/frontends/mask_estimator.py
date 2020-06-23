@@ -62,6 +62,7 @@ class MaskEstimator(torch.nn.Module):
             mask = linear(xs)
 
             mask = torch.sigmoid(mask)
+            #mask = torch.clamp(mask, min=0, max=1)
             # Zero padding
             mask.masked_fill(make_pad_mask(ilens, mask, length_dim=2), 0)
 

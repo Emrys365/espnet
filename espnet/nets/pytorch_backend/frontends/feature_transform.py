@@ -2,6 +2,7 @@ from typing import List
 from typing import Tuple
 from typing import Union
 
+import kaldiio
 import librosa
 import numpy as np
 import torch
@@ -42,8 +43,8 @@ class FeatureTransform(torch.nn.Module):
         else:
             self.uttmvn = None
 
-    def forward(self, x: ComplexTensor,
-                ilens: Union[torch.LongTensor, np.ndarray, List[int]]) \
+    def _transform(self, x: ComplexTensor,
+                   ilens: Union[torch.LongTensor, np.ndarray, List[int]]) \
             -> Tuple[torch.Tensor, torch.LongTensor]:
         # (B, T, F) or (B, T, C, F)
         if x.dim() not in (3, 4):
@@ -74,6 +75,18 @@ class FeatureTransform(torch.nn.Module):
 
         return h, ilens
 
+    def forward(self, x: Union[ComplexTensor, List[ComplexTensor]],
+                ilens: Union[torch.LongTensor, np.ndarray, List[int]]):
+        if isinstance(x, tuple):  # [speaker1, speaker2] multi-speaker case
+            ret_h = []
+            ret_l = []
+            for idx, h in enumerate(x):
+                h, ilens = self._transform(h, ilens)
+                ret_h.append(h)
+                ret_l.append(ilens)
+            return ret_h, ret_l
+        elif isinstance(x, ComplexTensor):  # clean single-speaker case
+            return self._transform(x, ilens)
 
 class LogMel(torch.nn.Module):
     """Convert STFT to fbank feats
@@ -153,15 +166,21 @@ class GlobalMVN(torch.nn.Module):
         self.norm_vars = norm_vars
 
         self.stats_file = stats_file
-        stats = np.load(stats_file)
+        if stats_file[-3:] == "ark":
+            stats = kaldiio.load_mat(stats_file)
+            count = stats[0][-1]
+            mean = stats[0][: -1] / count
+            std = stats[1][: -1] / count - mean * mean
+        else:
+            stats = np.load(stats_file)
 
-        stats = stats.astype(float)
-        assert (len(stats) - 1) % 2 == 0, stats.shape
+            stats = stats.astype(float)
+            assert (len(stats) - 1) % 2 == 0, stats.shape
 
-        count = stats.flatten()[-1]
-        mean = stats[:(len(stats) - 1) // 2] / count
-        var = stats[(len(stats) - 1) // 2:-1] / count - mean * mean
-        std = np.maximum(np.sqrt(var), eps)
+            count = stats.flatten()[-1]
+            mean = stats[:(len(stats) - 1) // 2] / count
+            var = stats[(len(stats) - 1) // 2:-1] / count - mean * mean
+            std = np.maximum(np.sqrt(var), eps)
 
         self.register_buffer('bias',
                              torch.from_numpy(-mean.astype(np.float32)))

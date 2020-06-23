@@ -1,7 +1,9 @@
+from distutils.version import LooseVersion
 from typing import Tuple
 
 import torch
 from torch.nn import functional as F
+from torch_complex import functional as FC
 
 from espnet.nets.pytorch_backend.frontends.beamformer \
     import apply_beamforming_vector
@@ -11,6 +13,8 @@ from espnet.nets.pytorch_backend.frontends.beamformer \
     import get_power_spectral_density_matrix
 from espnet.nets.pytorch_backend.frontends.mask_estimator import MaskEstimator
 from torch_complex.tensor import ComplexTensor
+
+is_torch_1_2_plus = LooseVersion(torch.__version__) >= LooseVersion('1.2')
 
 
 class DNN_Beamformer(torch.nn.Module):
@@ -41,12 +45,12 @@ class DNN_Beamformer(torch.nn.Module):
 
         self.nmask = bnmask
 
-        if beamformer_type != 'mvdr':
+        if beamformer_type not in ('mvdr', 'mpdr'):
             raise ValueError(
                 'Not supporting beamformer_type={}'.format(beamformer_type))
         self.beamformer_type = beamformer_type
 
-    def forward(self, data: ComplexTensor, ilens: torch.LongTensor) \
+    def forward(self, data: ComplexTensor, ilens: torch.LongTensor, irms=None) \
             -> Tuple[ComplexTensor, torch.LongTensor, ComplexTensor]:
         """The forward function
 
@@ -88,28 +92,62 @@ class DNN_Beamformer(torch.nn.Module):
 
         if self.nmask == 2:  # (mask_speech, mask_noise)
             mask_speech, mask_noise = masks
+            if irms is not None:
+                # Tensor(B, F, C, T)
+                mask_speech = irms
 
+            # covariance of source speech
             psd_speech = get_power_spectral_density_matrix(data, mask_speech)
-            psd_noise = get_power_spectral_density_matrix(data, mask_noise)
+            if self.beamformer_type == 'mvdr':
+                # covariance of noise
+                psd_noise = get_power_spectral_density_matrix(data, mask_noise)
+            elif self.beamformer_type == 'mpdr':
+                # covariance of observed speech
+                psd_noise = FC.einsum('...ct,...et->...ce', [data, data.conj()])
+            else:
+                raise ValueError('Not supporting beamformer_type={}'.format(self.beamformer_type))
 
             enhanced, ws = apply_beamforming(data, ilens, psd_speech, psd_noise)
 
             # (..., F, T) -> (..., T, F)
             enhanced = enhanced.transpose(-1, -2)
             mask_speech = mask_speech.transpose(-1, -3)
+            if self.beamformer_type == 'mvdr':
+                mask_noise = mask_noise.transpose(-1, -3)
+                return enhanced, ilens, [mask_speech, mask_noise]
+            else:
+                return enhanced, ilens, mask_speech
         else:  # multi-speaker case: (mask_speech1, ..., mask_noise)
-            mask_speech = list(masks[:-1])
+            if irms is not None:
+                # List[Tensor(B, F, C, T), Tensor(B, F, C, T)]
+                assert len(irms) == 2
+                mask_speech = irms
+            else:
+                mask_speech = list(masks[:-1])
             mask_noise = masks[-1]
 
+            # covariance of source speech
             psd_speeches = [get_power_spectral_density_matrix(data, mask) for mask in mask_speech]
-            psd_noise = get_power_spectral_density_matrix(data, mask_noise)
+            if self.beamformer_type == 'mvdr':
+                # covariance of noise
+                psd_noise = get_power_spectral_density_matrix(data, mask_noise)
+            elif self.beamformer_type == 'mpdr':
+                # covariance of observed speech
+                psd_noise = FC.einsum('...ct,...et->...ce', [data, data.conj()])
+            else:
+                raise ValueError('Not supporting beamformer_type={}'.format(self.beamformer_type))
 
             enhanced = []
             ws = []
             for i in range(self.nmask - 1):
                 psd_speech = psd_speeches.pop(i)
                 # treat all other speakers' psd_speech as noises
-                enh, w = apply_beamforming(data, ilens, psd_speech, sum(psd_speeches) + psd_noise)
+                if self.beamformer_type == 'mvdr':
+                    enh, w = apply_beamforming(data, ilens, psd_speech, sum(psd_speeches) + psd_noise)
+                elif self.beamformer_type == 'mpdr':
+                    enh, w = apply_beamforming(data, ilens, psd_speech, psd_noise)
+                else:
+                    raise ValueError('Not supporting beamformer_type={}'.format(self.beamformer_type))
                 psd_speeches.insert(i, psd_speech)
 
                 # (..., F, T) -> (..., T, F)
@@ -119,7 +157,7 @@ class DNN_Beamformer(torch.nn.Module):
                 enhanced.append(enh)
                 ws.append(w)
 
-        return enhanced, ilens, mask_speech
+            return enhanced, ilens, mask_speech
 
 
 class AttentionReference(torch.nn.Module):
@@ -143,7 +181,8 @@ class AttentionReference(torch.nn.Module):
         B, _, C = psd_in.size()[:3]
         assert psd_in.size(2) == psd_in.size(3), psd_in.size()
         # psd_in: (B, F, C, C)
-        psd = psd_in.masked_fill(torch.eye(C, dtype=torch.uint8,
+        datatype = torch.bool if is_torch_1_2_plus else torch.uint8
+        psd = psd_in.masked_fill(torch.eye(C, dtype=datatype,
                                            device=psd_in.device), 0)
         # psd: (B, F, C, C) -> (B, C, F)
         psd = (psd.sum(dim=-1) / (C - 1)).transpose(-1, -2)

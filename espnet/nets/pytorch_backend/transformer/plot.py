@@ -44,23 +44,31 @@ def plot_multi_head_attention(data, attn_dict, outdir, suffix="png", savefn=save
     :param str suffix: filename suffix including image type (e.g., png)
     :param savefn: function to save
     """
-    for name, att_ws in attn_dict.items():
-        for idx, att_w in enumerate(att_ws):
-            filename = "%s/%s.%s.%s" % (
-                outdir, data[idx][0], name, suffix)
-            dec_len = int(data[idx][1]['output'][0]['shape'][0])
-            enc_len = int(data[idx][1]['input'][0]['shape'][0])
-            if "encoder" in name:
-                att_w = att_w[:, :enc_len, :enc_len]
-            elif "decoder" in name:
-                if "self" in name:
-                    att_w = att_w[:, :dec_len, :dec_len]
+    if not isinstance(attn_dict, list):
+        attn_dict_sd = [attn_dict]
+        new_suffix = suffix
+    else:  # multiple streams
+        attn_dict_sd = attn_dict
+        new_suffix=[f"s{i}.{suffix}" for i in range(len(attn_dict))]
+    for ns, attn_dict in enumerate(attn_dict_sd):
+        suffix = new_suffix[ns] if isinstance(new_suffix, list) else new_suffix
+        for name, att_ws in attn_dict.items():
+            for idx, att_w in enumerate(att_ws):
+                filename = "%s/%s.%s.%s" % (
+                    outdir, data[idx][0], name, suffix)
+                dec_len = int(data[idx][1]['output'][ns]['shape'][0])
+                enc_len = int(data[idx][1]['input'][0]['shape'][0])
+                if "encoder" in name:
+                    att_w = att_w[:, :enc_len, :enc_len]
+                elif "decoder" in name:
+                    if "self" in name:
+                        att_w = att_w[:, :dec_len, :dec_len]
+                    else:
+                        att_w = att_w[:, :dec_len, :enc_len]
                 else:
-                    att_w = att_w[:, :dec_len, :enc_len]
-            else:
-                logging.warning("unknown name for shaping attention")
-            fig = _plot_and_save_attention(att_w, filename)
-            savefn(fig, filename)
+                    logging.warning("unknown name for shaping attention")
+                fig = _plot_and_save_attention(att_w, filename)
+                savefn(fig, filename)
 
 
 class PlotAttentionReport(asr_utils.PlotAttentionReport):

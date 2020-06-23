@@ -11,7 +11,8 @@ def stft(x, n_fft, n_shift, win_length=None, window='hann', center=True,
         x = x[:, None]
     else:
         single_channel = False
-    x = x.astype(np.float32)
+    #------ modified by wyz97
+    x = np.asfortranarray(x.astype(np.float32))
 
     # FIXME(kamo): librosa.stft can't use multi-channel?
     # x: [Time, Channel, Freq]
