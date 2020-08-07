@@ -277,14 +277,11 @@ def get_parser(parser=None, required=True):
                         help='Initialze the frontend model from')
     parser.add_argument('--wpe-iterations', type=int, default=1,
                         help='iterations for performing WPE')
-    parser.add_argument('--use-wpe-for-mix', type=strtobool, default=False,
-                        help='Whether to separate mixture before WPE')
     parser.add_argument('--use-beamforming-first', type=strtobool, default=False,
                         help='Whether to perform beamforming before WPE')
     parser.add_argument('--use-WPD-frontend', type=strtobool, default=False,
                         help='use WPD frontend instead of WPE + MVDR beamformer')
-    parser.add_argument('--wpd-opt', type=float, default=1, choices=[1, 2, 3, 4, 5, 5.2, 6],
-                        help='which WPD implementation to be used')
+                        
     return parser
 
 

@@ -6,103 +6,20 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 from typing import Union
-from pytorch_wpe import wpe_one_iteration
 
-import logging
-import matplotlib.pyplot as plt
 import numpy
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from torch_complex import functional as FC
 from torch_complex.tensor import ComplexTensor
 
 from espnet.nets.pytorch_backend.frontends.mask_estimator import MaskEstimator
-from espnet.nets.pytorch_backend.nets_utils import make_pad_mask
-
-
 from espnet.nets.pytorch_backend.frontends.WPD_beamfomer_v6 import get_covariances
 from espnet.nets.pytorch_backend.frontends.WPD_beamfomer_v6 import get_power_spectral_density_matrix
-from espnet.nets.pytorch_backend.frontends.WPD_beamfomer_v6 import get_stacked_covariance
-# from espnet.nets.pytorch_backend.frontends.WPD_beamfomer_v6 import get_WPD_filter_conj
+from espnet.nets.pytorch_backend.frontends.WPD_beamfomer_v6 import get_WPD_filter_conj_v2
 from espnet.nets.pytorch_backend.frontends.WPD_beamfomer_v6 import perform_WPD_filtering
 
 is_torch_1_2_plus = LooseVersion(torch.__version__) >= LooseVersion('1.2')
-
-
-def get_WPD_filter_conj(Rf: ComplexTensor,
-                        Phi: ComplexTensor,
-                        reference_vector: torch.Tensor,
-                        eps: float = 1e-15) -> ComplexTensor:
-    """Return the WPD (Weighted Power minimization Distortionless response convolutional beamformer) vector:
-
-        h = (Rf^-1 @ Phi_{xx}) @ u / tr[(Rf^-1) @ Phi_{xx}]
-
-    Reference:
-        Maximum likelihood convolutional beamformer for simultaneous denoising
-        and dereverberation; Nakatani, T. and Kinoshita, K., 2019;
-        https://arxiv.org/abs/1908.02710
-
-    Args:
-        Rf (ComplexTensor): (B, F, (btaps+1) * C, (btaps+1) * C)
-            is the power normalized spatio-temporal covariance matrix.
-        Phi (ComplexTensor): (B, F, C, C)
-            is speech PSD.
-        reference_vector (torch.Tensor): (B, C)
-            is the reference_vector.
-        eps (float):
-
-    Returns:
-        filter_matrix_conj (ComplexTensor): (B, F, (btaps+1) * C)
-    """
-    C = reference_vector.shape[-1]
-    try:
-        inv_Rf = Rf.inverse()
-    except:
-        try:
-            reg_coeff_tensor = ComplexTensor(torch.rand_like(Rf.real),
-                                             torch.rand_like(Rf.real)) * 1e-4
-            Rf = Rf / 10e+4
-            Phi = Phi / 10e+4
-            Rf += reg_coeff_tensor
-            inv_Rf = Rf.inverse()
-        except:
-            reg_coeff_tensor = ComplexTensor(torch.rand_like(Rf.real),
-                                             torch.rand_like(Rf.real)) * 1e-1
-            Rf = Rf / 10e+10
-            Phi = Phi / 10e+10
-            Rf += reg_coeff_tensor
-            inv_Rf = Rf.inverse()
-    # (B, F, (btaps+1) * C, (btaps+1) * C) --> (B, F, (btaps+1) * C, C)
-    inv_Rf_pruned = inv_Rf[..., :C]
-    # numerator: (..., C_1, C_2) x (..., C_2, C_3) -> (..., C_1, C_3)
-    numerator = FC.einsum('...ec,...cd->...ed', [inv_Rf_pruned, Phi])
-    # ws: (..., (btaps+1) * C, C) / (...,) -> (..., (btaps+1) * C, C)
-    ws = numerator / (FC.trace(numerator[..., :C, :])[..., None, None] + eps)
-    # h: (..., F, C_1, C_2) x (..., C_2) -> (..., F, C_1)
-    beamform_vector = FC.einsum('...fec,...c->...fe', [ws, reference_vector])
-    # (B, F, (btaps+1) * C)
-    return beamform_vector.conj()
-
-'''
-def perform_WPD_filtering(Y: ComplexTensor,
-                          filter_matrix_conj: ComplexTensor,
-                          bdelay: int, btaps: int) \
-        -> ComplexTensor:
-    """perform_filter_operation
-
-    Args:
-        Y : Complex STFT signal with shape (B, F, C, T)
-        filter_matrix_conj: Filter matrix (B, F, (btaps+1) * C)
-
-    Returns:
-        enhanced (ComplexTensor): (B, F, T)
-    """
-    enhanced = FC.einsum('...c,...ct->...t', [filter_matrix_conj, Y])
-    # (B, F, T, 1)
-    # enhanced = FC.matmul(Ytilde, filter_matrix_conj.unsqueeze(-1)).squeeze(-1)
-    return enhanced
-'''
 
 
 class Frontend(nn.Module):
@@ -119,12 +36,9 @@ class Frontend(nn.Module):
                  bprojs: int = 320,
                  bnmask: int = 2,
                  badim: int = 320,
-                 wlayers: int = 2,
-                 wunits: int = 300,
-                 wprojs: int = 300,
                  ref_channel: int = -1,
                  bdropout_rate: float = 0.0,
-                 normalization: bool = False):
+                 normalization: bool = True):
         super().__init__()
 
         self.eps = 1e-7
@@ -136,8 +50,6 @@ class Frontend(nn.Module):
         if self.use_beamformer or self.use_wpe:
             self.mask = MaskEstimator(btype, idim, blayers, bunits, bprojs,
                                       bdropout_rate, nmask=bnmask)
-            self.mask_est = MaskEstimator(btype, idim, wlayers, wunits, wprojs,
-                                          bdropout_rate, nmask=bnmask)
 
         if self.use_wpe:
             # Use DNN for power estimation
@@ -149,13 +61,6 @@ class Frontend(nn.Module):
             self.ref_channel = ref_channel
             self.btaps = btaps
             self.bdelay = bdelay if self.btaps > 0 else 1
-#             self.beamformer = DNN_Beamformer(bidim=idim,
-#                                              badim=badim,
-#                                              btaps=btaps,
-#                                              bdelay=bdelay,
-#                                              ref_channel=ref_channel)
-#        else:
-#            self.beamformer = None3
 
     def forward(self, x: ComplexTensor,
                 ilens: Union[torch.LongTensor, numpy.ndarray, List[int]],
@@ -198,10 +103,8 @@ class Frontend(nn.Module):
         #   h (ComplexTensor): (B, F, C, T)
         #   ilens (torch.Tensor): (B,)
         # Return:
-        #   mask: (B, F, C, T), for calculating PSDs
+        #   mask: (B, F, C, T)
         (mask_speech1, mask_speech2), _ = self.mask(Y, ilens)
-        # for calculating powers
-        (mask1, mask2), _ = self.mask_est(Y, ilens)
 
         # Calculate power: (..., C, T)
         power = Y.real ** 2 + Y.imag ** 2
@@ -212,11 +115,11 @@ class Frontend(nn.Module):
         else:
             if self.normalization:
                 # Normalize along T
-                mask1 = mask1 / mask1.sum(dim=-1).unsqueeze(-1)
-                mask2 = mask2 / mask2.sum(dim=-1).unsqueeze(-1)
+                mask_speech1 = mask_speech1 / mask_speech1.sum(dim=-1).unsqueeze(-1)
+                mask_speech2 = mask_speech2 / mask_speech2.sum(dim=-1).unsqueeze(-1)
         # (..., C, T) * (..., C, T) -> (..., C, T)
-        power_speech1 = power * mask1
-        power_speech2 = power * mask2
+        power_speech1 = power * mask_speech1
+        power_speech2 = power * mask_speech2
 
         # Averaging along the channel axis: (B, F, C, T) -> (B, F, T)
         power_speech1 = power_speech1.mean(dim=-2)
@@ -228,23 +131,7 @@ class Frontend(nn.Module):
         covariance_matrix1 = get_covariances(Y, inverse_power1, self.bdelay, self.btaps, get_vector=False)
         covariance_matrix2 = get_covariances(Y, inverse_power2, self.bdelay, self.btaps, get_vector=False)
 
-        # if self.use_wpe:
-        #     # dereverb: (..., C, T) -> (..., C, T)
-        #     dereverb_speech1 = wpe_one_iteration(
-        #         Y.contiguous(), inverse_power1,
-        #         taps=self.btaps, delay=self.bdelay,
-        #         inverse_power=False)
-        #     dereverb_speech2 = wpe_one_iteration(
-        #         Y.contiguous(), inverse_power2,
-        #         taps=self.btaps, delay=self.bdelay,
-        #         inverse_power=False)
-        #     dereverb_speech1.masked_fill_(make_pad_mask(ilens, dereverb_speech1.real), 0)
-        #     dereverb_speech2.masked_fill_(make_pad_mask(ilens, dereverb_speech2.real), 0)
-        #     # PSD of speech from each speaker: (B, F, C, C)
-        #     psd_speech1 = get_power_spectral_density_matrix(dereverb_speech1, mask_speech1)
-        #     psd_speech2 = get_power_spectral_density_matrix(dereverb_speech2, mask_speech2)
-        # else:
-            # PSD of speech from each speaker: (B, F, C, C)
+        # PSD of speech from each speaker: (B, F, C, C)
         psd_speech1 = get_power_spectral_density_matrix(Y, mask_speech1, normalization=False)
         psd_speech2 = get_power_spectral_density_matrix(Y, mask_speech2, normalization=False)
 
@@ -253,8 +140,8 @@ class Frontend(nn.Module):
         u2 = get_ref_vec(psd_speech2)
 
         # (B, F, (btaps+1) * C)
-        WPD_filter_conj1 = get_WPD_filter_conj(covariance_matrix1, psd_speech1, u1)
-        WPD_filter_conj2 = get_WPD_filter_conj(covariance_matrix2, psd_speech2, u2)
+        WPD_filter_conj1 = get_WPD_filter_conj_v2(covariance_matrix1, psd_speech1, u1)
+        WPD_filter_conj2 = get_WPD_filter_conj_v2(covariance_matrix2, psd_speech2, u2)
 
         # (B, F, T)
         enhanced1 = perform_WPD_filtering(Y, WPD_filter_conj1, self.bdelay, self.btaps)
@@ -270,22 +157,6 @@ class Frontend(nn.Module):
         mask_speech1 = mask_speech1.transpose(-1, -3)
         mask_speech2 = mask_speech2.transpose(-1, -3)
 
-#        plt.subplot(2,1,1)
-#        plt.pcolor(mask_speech1[0,:,0,:].cpu().numpy().T)
-#        plt.colorbar()
-#        plt.subplot(2,1,2)
-#        plt.pcolor(mask_speech2[0,:,0,:].cpu().numpy().T)
-#        plt.colorbar()
-#        plt.savefig('/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/espnet-v0.5.3/multi-channel/wsj-mix-spatialized/masks.jpg')
-#        plt.clf()
-#        plt.subplot(2,1,1)
-#        plt.pcolor(h[0][0].cpu().abs().numpy().T)
-#        plt.colorbar()
-#        plt.subplot(2,1,2)
-#        plt.pcolor(h[1][0].cpu().abs().numpy().T)
-#        plt.colorbar()
-#        plt.savefig('/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/espnet-v0.5.3/multi-channel/wsj-mix-spatialized/spectra.jpg')
-#        plt.clf()
         return h, ilens, [mask_speech1, mask_speech2]
 
 

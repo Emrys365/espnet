@@ -124,8 +124,6 @@ v2: Experimental API. It supports any models that implements ScorerInterface.'''
     # Beamformer related
     parser.add_argument('--use-beamformer', type=strtobool,
                         default=True, help='')
-    parser.add_argument('--use-wpe-for-mix', type=strtobool, default=False,
-                        help='Whether to separate mixture before WPE')
     parser.add_argument('--use-WPD-frontend', type=strtobool, default=False,
                         help='use WPD frontend instead of WPE + MVDR beamformer')
     parser.add_argument('--test-btaps', type=int, default=-1,

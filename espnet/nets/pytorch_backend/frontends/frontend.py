@@ -3,7 +3,6 @@ from typing import Optional
 from typing import Tuple
 from typing import Union
 
-import logging
 import numpy
 import torch
 import torch.nn as nn
@@ -102,9 +101,6 @@ class Frontend(nn.Module):
                 choices = [(False, False)] if not self.use_frontend_for_all else []
                 if self.use_wpe and self.use_beamformer:
                     choices.append((True, True))
-
-                #if self.use_wpe:
-                #    choices.append((True, False))
 
                 if self.use_beamformer:
                     choices.append((False, True))

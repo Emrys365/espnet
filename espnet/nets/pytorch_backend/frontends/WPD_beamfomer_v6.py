@@ -96,87 +96,6 @@ def get_power_spectral_density_matrix(xs: ComplexTensor, mask: torch.Tensor,
     return psd
 
 
-def get_stacked_covariance(Y: ComplexTensor,
-                           mask: torch.Tensor,
-                           btaps: int,
-                           normalization=True,
-                           eps: float = 1e-15
-                           ) -> ComplexTensor:
-    """Return PSD matrix of the stacked speech signal x(t,f) = [Y^T(t,f), 0, ..., 0]^T
-
-    Args:
-        Y (ComplexTensor): (B, F, C, T)
-        mask (torch.Tensor): (B, F, C, T)
-        btaps (int):
-        normalization (bool):
-        eps (float):
-    Returns:
-        psd (ComplexTensor): (B, F, (btaps + 1) * C, (btaps + 1) * C)
-    """
-    C = Y.shape[-2]
-    # --> (B, F, T, C) --> (B, F, T, (btaps + 1) * C)
-    #  --> (B, F, (btaps + 1) * C, T)
-    Y_tilde = FC.pad(Y.transpose(-1, -2), (0, btaps * C), 'constant', 0).transpose(-1, -2)
-    mask_tilde = FC.pad(mask.transpose(-1, -2), (0, btaps * C), 'constant', 0).transpose(-1, -2)
-    # (B, F, (btaps + 1) * C, (btaps + 1) * C)
-    return get_power_spectral_density_matrix(Y_tilde, mask_tilde, normalization, eps)
-
-
-def get_masked_covariance(Y: ComplexTensor,
-                          inverse_power: torch.Tensor,
-                          bdelay: int,
-                          btaps: int,
-                          mask: ComplexTensor,
-                          normalization=True,
-                          eps: float = 1e-15) -> ComplexTensor:
-    """Calculates the power normalized spatio-temporal covariance matrix of the framed signal.
-
-    Args:
-        Y : Complext STFT signal with shape (B, F, C, T)
-        inverse_power : Weighting factor with shape (B, F, T)
-        mask : Complext STFT signal with shape (B, F, C, T)
-
-    Returns:
-        Correlation matrix of shape (B, F, (btaps+1) * C, (btaps+1) * C)
-    """
-    assert inverse_power.dim() == 3, inverse_power.dim()
-    assert inverse_power.size(0) == Y.size(0), \
-        (inverse_power.size(0), Y.size(0))
-
-    Bs, Fdim, C, T = Y.shape
-
-    # (B, F, C, T - bdelay - btaps + 1, btaps + 1)
-    Psi = signal_framing(
-        Y, btaps + 1, 1, bdelay, do_padding=False)[..., :T - bdelay - btaps + 1, :]
-    # Reverse along btaps-axis: [tau, tau-bdelay, tau-bdelay-1, ..., tau-bdelay-frame_length+1]
-    Psi = FC.reverse(Psi, dim=-1)
-    Psi_norm = \
-        Psi * inverse_power[..., None, bdelay + btaps - 1:, None]
-
-    # Averaging mask along C: (B, F, C, T) -> (B, F, T)
-    mask = mask.mean(dim=-2)
-    # Normalized mask along T: (B, F, T)
-    if normalization:
-        # If assuming the tensor is padded with zero, the summation along
-        # the time axis is same regardless of the padding length.
-        mask = mask / (mask.sum(dim=-1, keepdim=True) + eps)
-
-    # (B, F, T - bdelay - btaps + 1)
-    mask_bar = mask[..., bdelay + btaps - 1:]
-
-    # let T' = T - bdelay - btaps + 1
-    # (B, F, C, T', btaps + 1) x (B, F, C, T', btaps + 1) -> (B, F, T', btaps + 1, C, btaps + 1, C)
-    covariance_matrix = FC.einsum('bfdtk,bfetl->bftkdle', (Psi, Psi_norm.conj()))
-
-    covariance_matrix = covariance_matrix * mask_bar[..., None, None, None, None]
-    # sum along T': (B, F, btaps + 1, C, btaps + 1, C)
-    covariance_matrix = covariance_matrix.sum(dim=2)
-
-    # (B, F, btaps + 1, C, btaps + 1, C) -> (B, F, (btaps + 1) * C, (btaps + 1) * C)
-    covariance_matrix = covariance_matrix.view(Bs, Fdim, (btaps + 1) * C, (btaps + 1) * C)
-    return covariance_matrix
-
-
 def get_covariances(Y: ComplexTensor,
                     inverse_power: torch.Tensor,
                     bdelay: int,
@@ -221,31 +140,6 @@ def get_covariances(Y: ComplexTensor,
         return covariance_matrix, covariance_vector
     else:
         return covariance_matrix
-
-
-def perform_WPE_filtering(Y: ComplexTensor,
-                          filter_matrix_conj: ComplexTensor,
-                          btaps, bdelay) -> ComplexTensor:
-    """perform_filter_operation_v2
-
-    modified from https://github.com/nttcslab-sp/dnn_wpe/blob/master/pytorch_wpe.py#L172-L188
-
-    Args:
-        Y : Complex-valued STFT signal of shape (B, F, C, T)
-        filter_matrix_conj: Filter matrix (B, F, btaps + 1, C, C)
-
-    Returns:
-        Y_enhanced: (B, F, C, T)
-    """
-    # (B, F, C, T) --> (B, F, C, T, btaps + 1)
-    Y_tilde = signal_framing(
-        Y, btaps + 1, 1, bdelay, do_padding=True, pad_value=0)
-    Y_tilde = FC.reverse(Y_tilde, dim=-1)
-
-    # (B, F, btaps + 1, C, C) x (B, F, C, T, btaps + 1)
-    #   --> (B, F, C, T)
-    reverb_tail = FC.einsum('bfpde,bfdtp->bfet', (filter_matrix_conj, Y_tilde))
-    return Y - reverb_tail
 
 
 def get_WPD_filter_conj(Rf: ComplexTensor,
@@ -298,6 +192,61 @@ def get_WPD_filter_conj(Rf: ComplexTensor,
     # h: (..., F, C_1, C_2) x (..., C_2) -> (..., F, C_1)
     beamform_vector = FC.einsum('...fec,...c->...fe', [ws, reference_vector])
     # (B, F, (btaps + 1) * C)
+    return beamform_vector.conj()
+
+
+def get_WPD_filter_conj_v2(Rf: ComplexTensor,
+                           Phi: ComplexTensor,
+                           reference_vector: torch.Tensor,
+                           eps: float = 1e-15) -> ComplexTensor:
+    """Return the WPD (Weighted Power minimization Distortionless response convolutional beamformer) vector:
+
+        h = (Rf^-1 @ Phi_{xx}) @ u / tr[(Rf^-1) @ Phi_{xx}]
+
+    Reference:
+        Maximum likelihood convolutional beamformer for simultaneous denoising
+        and dereverberation; Nakatani, T. and Kinoshita, K., 2019;
+        https://arxiv.org/abs/1908.02710
+
+    Args:
+        Rf (ComplexTensor): (B, F, (btaps+1) * C, (btaps+1) * C)
+            is the power normalized spatio-temporal covariance matrix.
+        Phi (ComplexTensor): (B, F, C, C)
+            is speech PSD.
+        reference_vector (torch.Tensor): (B, C)
+            is the reference_vector.
+        eps (float):
+
+    Returns:
+        filter_matrix_conj (ComplexTensor): (B, F, (btaps+1) * C)
+    """
+    C = reference_vector.shape[-1]
+    try:
+        inv_Rf = Rf.inverse()
+    except:
+        try:
+            reg_coeff_tensor = ComplexTensor(torch.rand_like(Rf.real),
+                                             torch.rand_like(Rf.real)) * 1e-4
+            Rf = Rf / 10e+4
+            Phi = Phi / 10e+4
+            Rf += reg_coeff_tensor
+            inv_Rf = Rf.inverse()
+        except:
+            reg_coeff_tensor = ComplexTensor(torch.rand_like(Rf.real),
+                                             torch.rand_like(Rf.real)) * 1e-1
+            Rf = Rf / 10e+10
+            Phi = Phi / 10e+10
+            Rf += reg_coeff_tensor
+            inv_Rf = Rf.inverse()
+    # (B, F, (btaps+1) * C, (btaps+1) * C) --> (B, F, (btaps+1) * C, C)
+    inv_Rf_pruned = inv_Rf[..., :C]
+    # numerator: (..., C_1, C_2) x (..., C_2, C_3) -> (..., C_1, C_3)
+    numerator = FC.einsum('...ec,...cd->...ed', [inv_Rf_pruned, Phi])
+    # ws: (..., (btaps+1) * C, C) / (...,) -> (..., (btaps+1) * C, C)
+    ws = numerator / (FC.trace(numerator[..., :C, :])[..., None, None] + eps)
+    # h: (..., F, C_1, C_2) x (..., C_2) -> (..., F, C_1)
+    beamform_vector = FC.einsum('...fec,...c->...fe', [ws, reference_vector])
+    # (B, F, (btaps+1) * C)
     return beamform_vector.conj()
 
 
@@ -355,8 +304,8 @@ if __name__ == '__main__':
     # covariance matrix: (B, F, (btaps+1) * C, (btaps+1) * C)
     covariance_matrix = get_covariances(Z, inverse_power, bdelay, btaps, get_vector=False)
 
-    # stacked speech signal PSD: (B, F, (btaps+1) * C, (btaps+1) * C)
-    psd_x = get_stacked_covariance(Z, mask_speech, btaps, normalization=True)
+    # speech PSD: (B, F, C, C)
+    psd_x = get_power_spectral_density_matrix(Z, mask_speech, normalization=False)
 
     # reference vector: (B, C)
     ref_channel = 0
@@ -365,7 +314,7 @@ if __name__ == '__main__':
     u[..., ref_channel].fill_(1)
 
     # (B, F, (btaps + 1) * C)
-    WPD_filter_conj = get_WPD_filter_conj(covariance_matrix, psd_x, u)
+    WPD_filter_conj = get_WPD_filter_conj_v2(covariance_matrix, psd_x, u)
 
     # (B, F, T)
     enhanced = perform_WPD_filtering(Z, WPD_filter_conj, bdelay, btaps)

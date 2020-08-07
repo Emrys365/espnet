@@ -191,49 +191,12 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
             # Relative importing because of using python3 syntax
             from espnet.nets.pytorch_backend.frontends.feature_transform \
                 import feature_transform_for
-            #-------- added by wyz97
             if args.use_WPD_frontend:
-                if args.wpd_opt == 1:
-                    logging.warning('using WPD frontend (ver 1)')
-                    logging.warning('   use the AttentionReference to calculate the steering vector for each frequency band (attend along the channel dimension)')
-                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v1 \
-                        import frontend_for
-                elif args.wpd_opt == 2:
-                    logging.warning('using WPD frontend (ver 2)')
-                    logging.warning('   use the AttentionReference to calculate the steering vector, sharing the same values in all frequency bands (attend along the frequency dimension)')
-                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v2 \
-                        import frontend_for
-                elif args.wpd_opt == 3:
-                    logging.warning('using WPD frontend (ver 3)')
-                    logging.warning('   use the original WPD formulas to calculate the steering vector (MaxEigenVector)')
-                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v3 \
-                        import frontend_for
-                elif args.wpd_opt == 4:
-                    logging.warning('using WPD frontend (ver 4)')
-                    logging.warning('   use the modified WPD formulas to calculate the steering vector (MaxEigenVector with Cholesky decomposition)')
-                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v4 \
-                        import frontend_for
-                elif args.wpd_opt == 5:
-                    logging.warning('using WPD frontend (ver 5)')
-                    logging.warning('   use the simplified WPD formulas (MPDR) to get rid of explicit dependence of the steering vector')
-                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v5 \
-                        import frontend_for
-                elif args.wpd_opt == 5.2:
-                    logging.warning('using WPD frontend (ver 5.2)')
-                    logging.warning('   use the simplified WPD formulas (MPDR, 2 mask estimators) to get rid of explicit dependence of the steering vector')
-                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v5_2 \
-                        import frontend_for
-                elif args.wpd_opt == 6:
-                    logging.warning('using WPD frontend (ver 6)')
-                    logging.warning('   use the simplified WPD formulas (MVDR) to get rid of explicit dependence of the steering vector')
-                    from espnet.nets.pytorch_backend.frontends.frontend_wpd_v6 \
-                        import frontend_for
-            elif args.use_wpe_for_mix:
-                logging.warning('using MIMO-Reverb-Speech arch2 frontend')
-                from espnet.nets.pytorch_backend.frontends.frontend_for_mix \
+                logging.warning('   use the simplified WPD formulas (MPDR) to get rid of explicit dependence of the steering vector')
+                from espnet.nets.pytorch_backend.frontends.frontend_wpd \
                     import frontend_for
             else:
-                logging.warning('using MIMO-Reverb-Speech arch1 frontend')
+                logging.warning('using MIMO-Speech (WPE+MVDR)')
                 from espnet.nets.pytorch_backend.frontends.frontend \
                     import frontend_for
 
