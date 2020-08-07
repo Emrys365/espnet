@@ -17,4 +17,4 @@ This recipe provides source code for data simulation and models related to the p
 > Note: You may need to modify the default paths specified in [run.sh](https://github.com/Emrys365/espnet/blob/wsj1_mix_spatialized/egs/wsj1_mix_spatialized/asr1/run.sh) to make it work.
 
 ## Note
-1. The frontend modules (both `WPE+MVDR` and `WPD`) can be found in https://github.com/Emrys365/espnet/blob/wsj1_mix_spatialized/espnet/nets/pytorch_backend/frontends/frontend.py and https://github.com/Emrys365/espnet/blob/wsj1_mix_spatialized/espnet/nets/pytorch_backend/frontends/frontend_wpd.py respectively.
+1. The implementation of frontend modules (both `WPE+MVDR` and `WPD`) can be found in https://github.com/Emrys365/espnet/blob/wsj1_mix_spatialized/espnet/nets/pytorch_backend/frontends/frontend.py and https://github.com/Emrys365/espnet/blob/wsj1_mix_spatialized/espnet/nets/pytorch_backend/frontends/frontend_wpd.py respectively.
