@@ -2,6 +2,7 @@ from typing import List
 from typing import Tuple
 from typing import Union
 
+import kaldiio
 import librosa
 import numpy as np
 import torch
@@ -158,15 +159,21 @@ class GlobalMVN(torch.nn.Module):
         self.norm_vars = norm_vars
 
         self.stats_file = stats_file
-        stats = np.load(stats_file)
+        if stats_file[-3:] == "ark":
+            stats = kaldiio.load_mat(stats_file)
+            count = stats[0][-1]
+            mean = stats[0][: -1] / count
+            std = stats[1][: -1] / count - mean * mean
+        else:
+            stats = np.load(stats_file)
 
-        stats = stats.astype(float)
-        assert (len(stats) - 1) % 2 == 0, stats.shape
+            stats = stats.astype(float)
+            assert (len(stats) - 1) % 2 == 0, stats.shape
 
-        count = stats.flatten()[-1]
-        mean = stats[: (len(stats) - 1) // 2] / count
-        var = stats[(len(stats) - 1) // 2 : -1] / count - mean * mean
-        std = np.maximum(np.sqrt(var), eps)
+            count = stats.flatten()[-1]
+            mean = stats[: (len(stats) - 1) // 2] / count
+            var = stats[(len(stats) - 1) // 2 : -1] / count - mean * mean
+            std = np.maximum(np.sqrt(var), eps)
 
         self.register_buffer("bias", torch.from_numpy(-mean.astype(np.float32)))
         self.register_buffer("scale", torch.from_numpy(1 / std.astype(np.float32)))

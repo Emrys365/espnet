@@ -1,0 +1,71 @@
+# network architecture
+model-module: espnet.nets.pytorch_backend.e2e_asr_mix_transformer:E2E
+# encoder related
+elayers: 12      # the number of encoder blocks
+eunits: 2048
+# decoder related
+dlayers: 6
+dunits: 2048
+# attention related
+adim: 256
+#awin: 5
+aheads: 4
+#aconv-chans: 10
+#aconv-filts: 100
+
+# transformer
+transformer-attn-dropout-rate: 0.0
+transformer-input-layer: conv2d
+transformer-init: pytorch
+transformer-length-normalized-loss: 0
+transformer-warmup-steps: 25000
+transformer-lr: 1.0
+
+# hybrid CTC/attention
+mtlalpha: 0.2
+
+# label smoothing
+#lsm-type: ""
+lsm-weight: 0.1
+
+# minibatch related
+batch-size: 10
+maxlen-in: 500  # if input length  > maxlen-in, batchsize is automatically reduced
+maxlen-out: 150 # if output length > maxlen-out, batchsize is automatically reduced
+
+# optimization related
+sortagrad: 0 # Feed samples from shortest to longest ; -1: enabled for all epochs, 0: disabled, other: enabled for 'other' epochs
+opt: adam
+accum-grad: 1
+grad-clip: 5
+patience: 10
+epochs: 100
+dropout-rate: 0.1
+early-stop-criterion: "validation/main/acc"
+
+# scheduled sampling option
+#sampling-probability: 0.0
+
+# CMVN
+stats-file: fbank/tr_spatialized_all/cmvn.ark
+apply-uttmvn: True
+
+# reporting
+#report-wer: True
+
+# frontend related
+btype: blstm
+use-frontend: True
+use-beamforming-first: False
+# beamforming
+use-beamformer: True
+blayers: 3
+bnmask: 6
+bunits: 600
+bprojs: 600
+beamformer-type: mvdr_souden
+ref-channel: 0
+# WPE
+use-wpe: True
+use-dnn-mask-for-wpe: True
+wpe-taps: 5 #1

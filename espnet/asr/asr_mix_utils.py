@@ -185,3 +185,114 @@ def add_results_to_json(js, nbest_hyps_sd, char_list):
 
         new_js["output"].append(tmp_js)
     return new_js
+
+
+def add_results_to_json_wer(js, nbest_hyps_sd, ys, char_list):
+    """Add N-best results (WER & CER) to json.
+
+    Args:
+        js (dict[str, Any]): Groundtruth utterance dict.
+        nbest_hyps_sd (list[dict[str, Any]]): List of hypothesis for multi_speakers (# Utts x # Spkrs).
+        char_list (list[str]): List of characters.
+
+    Returns:
+        dict[str, Any]: N-best results added utterance dict.
+
+    """
+    import numpy as np
+    import torch
+    from espnet.nets.pytorch_backend.nets_utils import pad_list
+
+    if not isinstance(ys[0], np.ndarray):
+        ys_pad = [torch.from_numpy(y[0]).long() for y in ys] + [torch.from_numpy(y[1]).long() for y in ys]
+        ys_pad = pad_list(ys_pad, -1)
+        ys_pad = ys_pad.view(2, -1, ys_pad.size(1))  # (num_spkrs, B, Tmax)
+    else:
+        ys_pad = pad_list([torch.from_numpy(y).long() for y in ys], -1).transpose(0, 1)
+
+    # copy old json info
+    new_js = dict()
+    new_js['utt2spk'] = js['utt2spk']
+    num_spkrs = len(nbest_hyps_sd)
+    new_js['output'] = []
+    pit = PIT(num_spkrs)
+
+    # remove <sos> and <eos>
+    y_hats = [[nbest_hyp['yseq'][1:] for nbest_hyp in nbest_hyps_sd[i]] for i in range(num_spkrs)]
+    for i in range(len(y_hats[0])):
+        # iterate through all hypotheses
+        # copy ground-truth
+        out_dics = [dict(js['output'][ns].items()) for ns in range(num_spkrs)]
+
+        word_eds, char_eds, word_ref_lens, char_ref_lens = [], [], [], []
+        hyp_words = []
+        hyp_chars = []
+        ref_words = []
+        ref_chars = []
+        rec_tokens, rec_tokenids, rec_texts = [], [], []
+        for ns in range(num_spkrs):
+            y_hat = y_hats[ns][i]
+            y_true = ys_pad[ns][i]
+
+            rec_tokenid_list = [int(idx) for idx in y_hat if int(idx) != -1]
+            rec_tokenid = " ".join([str(idx) for idx in rec_tokenid_list])
+            rec_tokenids.append(rec_tokenid)
+
+            rec_token_list = [char_list[int(idx)] for idx in y_hat if int(idx) != -1]
+            rec_token = " ".join(rec_token_list)
+            rec_tokens.append(rec_token)
+
+            rec_text = "".join(rec_token_list).replace('<space>', ' ')
+            rec_text = rec_text.replace('<blank>', '').replace('<eos>', '')
+            rec_texts.append(rec_text)
+
+            true_token_list = [char_list[int(idx)] for idx in y_true if int(idx) != -1]
+            true_text = "".join(true_token_list).replace('<space>', ' ')
+
+            hyp_words.append(rec_text.split())
+            ref_words.append(true_text.split())
+            hyp_chars.append(rec_text.replace(' ', ''))
+            ref_chars.append(true_text.replace(' ', ''))
+
+        tmp_word_ed = [editdistance.eval(hyp_words[ns // num_spkrs], ref_words[ns % num_spkrs])
+                       for ns in range(num_spkrs ** 2)]  # h1r1,h1r2,h2r1,h2r2
+        tmp_char_ed = [editdistance.eval(hyp_chars[ns // num_spkrs], ref_chars[ns % num_spkrs])
+                       for ns in range(num_spkrs ** 2)]  # h1r1,h1r2,h2r1,h2r2
+
+        min_word_eds, perm_word = pit.min_pit_sample(torch.tensor(tmp_word_ed))
+        word_eds.append(min_word_eds)
+        word_ref_lens.append(len(sum(ref_words, [])))
+
+        min_char_eds, perm_char = pit.min_pit_sample(torch.tensor(tmp_char_ed))
+        char_eds.append(min_char_eds)
+        char_ref_lens.append(len(''.join(ref_chars)))
+
+        wer = float(sum(word_eds)) / sum(word_ref_lens)
+        cer = float(sum(char_eds)) / sum(char_ref_lens)
+        logging.info('wer: {}, cer: {}'.format(wer, cer))
+        new_js['output'].append({
+            'wer': wer, 'cer': cer,
+            'perm_word': str(perm_word),
+            'perm_char': str(perm_char),
+            'ed_word': float(min_word_eds),
+            'ed_char': float(min_char_eds),
+            'n_word': word_ref_lens[-1],
+            'n_char': char_ref_lens[-1]
+        })
+
+        for j, p in enumerate(perm_word):
+            # update name
+            out_dics[j]['name'] += '[%d]' % i
+            out_dics[j]['rec_text'] = rec_texts[p]
+            out_dics[j]['rec_token'] = rec_tokens[p]
+            out_dics[j]['rec_tokenid'] = rec_tokenids[p]
+            new_js['output'].append(out_dics[j])
+
+            # show 1-best result
+            if i == 0:
+                logging.info('groundtruth: %s' % out_dics[j]['text'])
+                logging.info('prediction : %s' % out_dics[j]['rec_text'])
+        # only add the top hypothesis
+        break
+
+    return new_js

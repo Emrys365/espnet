@@ -191,6 +191,10 @@ def get_parser():
     parser.add_argument(
         "--streaming-offset-margin", type=int, default=1, help="Offset margin"
     )
+    parser.add_argument('--test-btaps', type=int, default=-1,
+                        help='use the specified btaps for testing')
+    parser.add_argument('--test-nmics', type=int, default=-1,
+                        help='use the specified number of microphones for testing')
     return parser
 
 
@@ -285,9 +289,14 @@ def main(args):
             raise ValueError("Only chainer and pytorch are supported.")
     elif args.num_spkrs == 2:
         if args.backend == "pytorch":
-            from espnet.asr.pytorch_backend.asr_mix import recog
+            if args.api == "v2":
+                from espnet.asr.pytorch_backend.recog import recog_mix_v2
 
-            recog(args)
+                recog_mix_v2(args)
+            else:
+                from espnet.asr.pytorch_backend.asr_mix import recog
+
+                recog(args)
         else:
             raise ValueError("Only pytorch is supported.")
 

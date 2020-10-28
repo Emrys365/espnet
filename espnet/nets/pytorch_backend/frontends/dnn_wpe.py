@@ -1,10 +1,11 @@
 from typing import Tuple
 
+from nara_wpe.torch_wpe_real_imag import wpe_step
 from pytorch_wpe import wpe_one_iteration
 import torch
 from torch_complex.tensor import ComplexTensor
 
-from espnet.nets.pytorch_backend.frontends.mask_estimator import MaskEstimator
+#from espnet.nets.pytorch_backend.frontends.mask_estimator import MaskEstimator
 from espnet.nets.pytorch_backend.nets_utils import make_pad_mask
 
 
@@ -22,6 +23,7 @@ class DNN_WPE(torch.nn.Module):
         use_dnn_mask: bool = True,
         iterations: int = 1,
         normalization: bool = False,
+        use_vad_mask: bool = False,
     ):
         super().__init__()
         self.iterations = iterations
@@ -30,16 +32,23 @@ class DNN_WPE(torch.nn.Module):
 
         self.normalization = normalization
         self.use_dnn_mask = use_dnn_mask
+        self.use_vad_mask = use_vad_mask
 
         self.inverse_power = True
 
         if self.use_dnn_mask:
+            if not self.use_vad_mask:
+                from espnet.nets.pytorch_backend.frontends.mask_estimator import MaskEstimator
+                print('Using normal T-F masks for WPE', flush=True)
+            else:
+                from espnet.nets.pytorch_backend.frontends.mask_estimator_vad_v1 import MaskEstimator
+                print('Using VAD-like masks for WPE (same value for all frequencies in each frame)', flush=True)
             self.mask_est = MaskEstimator(
                 wtype, widim, wlayers, wunits, wprojs, dropout_rate, nmask=1
             )
 
     def forward(
-        self, data: ComplexTensor, ilens: torch.LongTensor
+        self, data: ComplexTensor, ilens: torch.LongTensor, target=None
     ) -> Tuple[ComplexTensor, torch.LongTensor, ComplexTensor]:
         """The forward function
 
@@ -57,7 +66,7 @@ class DNN_WPE(torch.nn.Module):
             ilens: (B,)
         """
         # (B, T, C, F) -> (B, F, C, T)
-        enhanced = data = data.permute(0, 3, 2, 1)
+        enhanced = data = data.permute(0, 3, 2, 1).double()
         mask = None
 
         for i in range(self.iterations):
@@ -65,15 +74,22 @@ class DNN_WPE(torch.nn.Module):
             power = enhanced.real ** 2 + enhanced.imag ** 2
             if i == 0 and self.use_dnn_mask:
                 # mask: (B, F, C, T)
-                (mask,), _ = self.mask_est(enhanced, ilens)
+                if target is not None:
+                    mask = target
+                else:
+                    (mask,), _ = self.mask_est(enhanced.float(), ilens)
                 if self.normalization:
                     # Normalize along T
-                    mask = mask / mask.sum(dim=-1)[..., None]
+                    mask = mask / (mask.sum(dim=-1, keepdim=True) + 1e-15)
+                #with torch.no_grad():
+                    #mask = mask / mask.abs().max()
+#                    mask = mask / mask.abs().max(dim=-1, keepdim=True)[0].detach()
                 # (..., C, T) * (..., C, T) -> (..., C, T)
-                power = power * mask
+                power = power * mask.double()
 
             # Averaging along the channel axis: (..., C, T) -> (..., T)
             power = power.mean(dim=-2)
+            power = torch.clamp(power, min=1e-6)
 
             # enhanced: (..., C, T) -> (..., C, T)
             enhanced = wpe_one_iteration(
@@ -84,6 +100,29 @@ class DNN_WPE(torch.nn.Module):
                 inverse_power=self.inverse_power,
             )
 
+#            if self.inverse_power:
+#                #eps = 1e-10 * torch.max(power).detach()
+#                #inverse_power = 1 / torch.max(power, eps)
+#                inverse_power = 1 / torch.clamp(power, min=1e-6)
+#            else:
+#                inverse_power = power
+#            # enhanced: (..., C, T) -> (..., C, T)
+#            enhanced = wpe_step(
+#                data.contiguous(),
+#                inverse_power,
+#                taps=self.taps,
+#                delay=self.delay,
+#                statistics_mode='valid',
+#                solver='torch_complex.solve',
+#            )
+
+#            B = enhanced.shape[0]
+#            if torch.any((enhanced.contiguous().view(B, -1).abs().max(dim=1) / data.contiguous().view(B, -1).abs().max(dim=1)) > 100):
+#                torch.set_printoptions(profile="full")
+#                print(enhanced)
+#                torch.set_printoptions(profile="default")
+#                import sys
+#                sys.exit(1)
             enhanced.masked_fill_(make_pad_mask(ilens, enhanced.real), 0)
 
         # (B, F, C, T) -> (B, T, C, F)

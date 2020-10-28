@@ -376,6 +376,18 @@ def get_parser(parser=None, required=True):
         type=lambda s: [str(mod) for mod in s.split(",") if s != ""],
         help="List of decoder modules to initialize, separated by a comma.",
     )
+    parser.add_argument(
+        "--ctc-init",
+        default=None,
+        type=str,
+        help="Pre-trained ASR model to initialize CTC.",
+    )
+    parser.add_argument(
+        "--ctc-init-mods",
+        default="att., dec.",
+        type=lambda s: [str(mod) for mod in s.split(",") if s != ""],
+        help="List of ctc modules to initialize, separated by a comma.",
+    )
     # front end related
     parser.add_argument(
         "--use-frontend",
@@ -502,6 +514,8 @@ def get_parser(parser=None, required=True):
     )
     parser.add_argument("--fbank-fmin", type=float, default=0.0, help="")
     parser.add_argument("--fbank-fmax", type=float, default=None, help="")
+
+    parser.add_argument("--mimo-with-ss-loss", type=strtobool, default=False, help="whether to train MIMO-Speech with both speech separation and ASR losses")
     return parser
 
 
@@ -577,6 +591,7 @@ def main(cmd_args):
 
     # display PYTHONPATH
     logging.info("python path = " + os.environ.get("PYTHONPATH", "(None)"))
+    logging.warning("pytorch = {}".format(torch.__version__))
 
     # set random seed
     logging.info("random seed = %d" % args.seed)
@@ -611,7 +626,10 @@ def main(cmd_args):
     else:
         # FIXME(kamo): Support --model-module
         if args.backend == "pytorch":
-            from espnet.asr.pytorch_backend.asr_mix import train
+            if args.mimo_with_ss_loss:
+                from espnet.asr.pytorch_backend.asr_mix_with_ss import train
+            else:
+                from espnet.asr.pytorch_backend.asr_mix import train
 
             train(args)
         else:

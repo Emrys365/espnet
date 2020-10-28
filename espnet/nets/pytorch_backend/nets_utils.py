@@ -4,6 +4,8 @@
 
 import logging
 from typing import Dict
+from typing import List
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -21,7 +23,18 @@ def to_device(m, x):
 
     """
     assert isinstance(m, torch.nn.Module)
-    device = next(m.parameters()).device
+    # for compatibility in PyTorch 1.5
+    try:
+        device = next(m.parameters()).device
+    except StopIteration:
+        # for compatibility in PyTorch 1.5
+        def find_tensor_attributes(module: torch.nn.Module) -> List[Tuple[str, torch.Tensor]]:
+            tuples = [(k, v) for k, v in module.__dict__.items() if torch.is_tensor(v)]
+            return tuples
+
+        gen = m._named_members(get_members_fn=find_tensor_attributes)
+        first_tuple = next(gen)
+        device = first_tuple[1].device
     return x.to(device)
 
 

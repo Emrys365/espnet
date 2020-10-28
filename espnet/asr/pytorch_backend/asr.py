@@ -71,6 +71,8 @@ def _recursive_to(xs, device):
         return xs.to(device)
     if isinstance(xs, tuple):
         return tuple(_recursive_to(x, device) for x in xs)
+    if isinstance(xs, dict):
+        return {k: _recursive_to(v, device) for k, v in xs.items()}
     return xs
 
 
@@ -126,7 +128,8 @@ class CustomEvaluator(BaseEvaluator):
                     # read scp files
                     # x: original json with loaded features
                     #    will be converted to chainer variable later
-                    if self.ngpu == 0:
+                    if self.ngpu <= 1:
+                    #if self.ngpu == 0:
                         self.model(*x)
                     else:
                         # apex does not support torch.nn.DataParallel
@@ -197,13 +200,27 @@ class CustomUpdater(StandardUpdater):
         # see details in https://github.com/espnet/espnet/pull/1388
 
         # Compute the loss at this time step and accumulate it
-        if self.ngpu == 0:
-            loss = self.model(*x).mean() / self.accum_grad
+        #if self.ngpu == 0:
+        if self.ngpu <= 1:
+#            loss = self.model(*x).mean() / self.accum_grad
+            loss0 = self.model(*x)
         else:
             # apex does not support torch.nn.DataParallel
-            loss = (
-                data_parallel(self.model, x, range(self.ngpu)).mean() / self.accum_grad
-            )
+#            loss = (
+#                data_parallel(self.model, x, range(self.ngpu)).mean() / self.accum_grad
+#            )
+            loss0 = data_parallel(self.model, x, range(self.ngpu))
+
+        loss = loss0.mean() / self.accum_grad
+
+        if math.isinf(float(loss)):
+            logging.warning("Loss is inf. Skip this minibatch")
+            return
+
+        if not loss.requires_grad:
+            logging.warning('loss.requires_grad=False. Skip this minibatch')
+            return
+
         if self.use_apex:
             from apex import amp
 
@@ -213,6 +230,7 @@ class CustomUpdater(StandardUpdater):
                 scaled_loss.backward()
         else:
             loss.backward()
+
         # gradient noise injection
         if self.grad_noise:
             from espnet.asr.asr_utils import add_gradient_noise
@@ -221,11 +239,13 @@ class CustomUpdater(StandardUpdater):
                 self.model, self.iteration, duration=100, eta=1.0, scale_factor=0.55
             )
 
+
         # update parameters
         self.forward_count += 1
         if not is_new_epoch and self.forward_count != self.accum_grad:
             return
         self.forward_count = 0
+
         # compute the gradient norm to check if it is normal or not
         grad_norm = torch.nn.utils.clip_grad_norm_(
             self.model.parameters(), self.grad_clip_threshold
@@ -233,6 +253,15 @@ class CustomUpdater(StandardUpdater):
         logging.info("grad norm={}".format(grad_norm))
         if math.isnan(grad_norm):
             logging.warning("grad norm is nan. Do not update model.")
+#            param_dict = dict()
+#            for name, param in self.model.named_parameters():
+#                if param.requires_grad and param.grad is not None:
+#                    param_dict[name] ={
+#                        "param": param.detach().cpu().numpy(),
+#                        "grad": param.grad.detach().cpu().numpy()
+#                    }
+#            np.save("xxx/model_param_dict.npy", param_dict)
+#            sys.exit(1)
         else:
             optimizer.step()
         optimizer.zero_grad()
@@ -430,6 +459,7 @@ def train(args):
             idim_list[0] if args.num_encs == 1 else idim_list, odim, args
         )
     assert isinstance(model, ASRInterface)
+    logging.warning('E2E model:\n{}'.format(model))
 
     if args.rnnlm is not None:
         rnnlm_args = get_model_conf(args.rnnlm, args.rnnlm_conf)

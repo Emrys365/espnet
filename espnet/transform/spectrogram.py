@@ -2,6 +2,7 @@ import librosa
 import numpy as np
 
 
+# use double precison for complex tensors
 def stft(
     x, n_fft, n_shift, win_length=None, window="hann", center=True, pad_mode="reflect"
 ):
@@ -12,7 +13,7 @@ def stft(
         x = x[:, None]
     else:
         single_channel = False
-    x = x.astype(np.float32)
+    x = x.astype(np.float64)
 
     # FIXME(kamo): librosa.stft can't use multi-channel?
     # x: [Time, Channel, Freq]
@@ -26,6 +27,7 @@ def stft(
                 window=window,
                 center=center,
                 pad_mode=pad_mode,
+                dtype=np.complex128,
             ).T
             for ch in range(x.shape[1])
         ],

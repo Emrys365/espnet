@@ -73,7 +73,11 @@ def convert(jsonf, dic, refs, hyps, num_spkrs=1):
             # In the recognition hypothesis,
             # the <eos> symbol is usually attached in the last part of the sentence
             # and it is removed below.
-            hyp_file.write(" ".join(seq).replace("<eos>", "")),
+            if len(seq) == 1 and seq[0] == "<eos>":
+                ### added by wyz97
+                hyp_file.write(" ".join(seq))
+            else:
+                hyp_file.write(" ".join(seq).replace("<eos>", ""))
             hyp_file.write(
                 " (" + j["utts"][x]["utt2spk"].replace("-", "_") + "-" + x + ")\n"
             )
@@ -83,6 +87,9 @@ def convert(jsonf, dic, refs, hyps, num_spkrs=1):
                 seq = j["utts"][x]["output"][0]["token"]
             else:
                 seq = j["utts"][x]["output"][ns][0]["token"]
+            ### added by wyz97
+            seq = seq.replace('<ignore_id>', '<eos>')
+
             # Unlike the recognition hypothesis,
             # the reference is directly generated from a token without dictionary
             # to avoid to include <unk> symbols in the reference to make scoring normal.

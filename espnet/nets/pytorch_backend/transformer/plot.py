@@ -71,35 +71,43 @@ def plot_multi_head_attention(
     :param savefn: function to save
 
     """
-    for name, att_ws in attn_dict.items():
-        for idx, att_w in enumerate(att_ws):
-            filename = "%s/%s.%s.%s" % (outdir, data[idx][0], name, suffix)
-            dec_len = int(data[idx][1][okey][oaxis]["shape"][0])
-            enc_len = int(data[idx][1][ikey][iaxis]["shape"][0])
-            xtokens, ytokens = None, None
-            if "encoder" in name:
-                att_w = att_w[:, :enc_len, :enc_len]
-                # for MT
-                if "token" in data[idx][1][ikey][iaxis].keys():
-                    xtokens = data[idx][1][ikey][iaxis]["token"].split()
-                    ytokens = xtokens[:]
-            elif "decoder" in name:
-                if "self" in name:
-                    att_w = att_w[:, : dec_len + 1, : dec_len + 1]  # +1 for <sos>
-                else:
-                    att_w = att_w[:, : dec_len + 1, :enc_len]  # +1 for <sos>
+    if not isinstance(attn_dict, list):
+        attn_dict_sd = [attn_dict]
+        new_suffix = suffix
+    else:  # multiple streams
+        attn_dict_sd = attn_dict
+        new_suffix=[f"s{i}.{suffix}" for i in range(len(attn_dict))]
+    for ns, attn_dict in enumerate(attn_dict_sd):
+        suffix = new_suffix[ns] if isinstance(new_suffix, list) else new_suffix
+        for name, att_ws in attn_dict.items():
+            for idx, att_w in enumerate(att_ws):
+                filename = "%s/%s.%s.%s" % (outdir, data[idx][0], name, suffix)
+                dec_len = int(data[idx][1][okey][oaxis]["shape"][0])
+                enc_len = int(data[idx][1][ikey][iaxis]["shape"][0])
+                xtokens, ytokens = None, None
+                if "encoder" in name:
+                    att_w = att_w[:, :enc_len, :enc_len]
                     # for MT
                     if "token" in data[idx][1][ikey][iaxis].keys():
                         xtokens = data[idx][1][ikey][iaxis]["token"].split()
-                # for ASR/ST/MT
-                if "token" in data[idx][1][okey][oaxis].keys():
-                    ytokens = ["<sos>"] + data[idx][1][okey][oaxis]["token"].split()
+                        ytokens = xtokens[:]
+                elif "decoder" in name:
                     if "self" in name:
-                        xtokens = ytokens[:]
-            else:
-                logging.warning("unknown name for shaping attention")
-            fig = _plot_and_save_attention(att_w, filename, xtokens, ytokens)
-            savefn(fig, filename)
+                        att_w = att_w[:, : dec_len + 1, : dec_len + 1]  # +1 for <sos>
+                    else:
+                        att_w = att_w[:, : dec_len + 1, :enc_len]  # +1 for <sos>
+                        # for MT
+                        if "token" in data[idx][1][ikey][iaxis].keys():
+                            xtokens = data[idx][1][ikey][iaxis]["token"].split()
+                    # for ASR/ST/MT
+                    if "token" in data[idx][1][okey][oaxis].keys():
+                        ytokens = ["<sos>"] + data[idx][1][okey][oaxis]["token"].split()
+                        if "self" in name:
+                            xtokens = ytokens[:]
+                else:
+                    logging.warning("unknown name for shaping attention")
+                fig = _plot_and_save_attention(att_w, filename, xtokens, ytokens)
+                savefn(fig, filename)
 
 
 class PlotAttentionReport(asr_utils.PlotAttentionReport):

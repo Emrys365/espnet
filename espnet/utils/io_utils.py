@@ -48,6 +48,7 @@ class LoadInputsAndTargets(object):
         use_second_target=False,
         preprocess_args=None,
         keep_all_data_on_mem=False,
+        test_nmics=-1,
     ):
         self._loaders = {}
         if mode not in ["asr", "tts", "mt"]:
@@ -85,6 +86,9 @@ class LoadInputsAndTargets(object):
             self.preprocess_args = dict(preprocess_args)
 
         self.keep_all_data_on_mem = keep_all_data_on_mem
+        self.test_nmics = test_nmics
+        if self.test_nmics > 0:
+            logging.warning('Using %d microphones for testing.' % self.test_nmics)
 
     def __call__(self, batch):
         """Function to load inputs and targets from list of dicts
@@ -103,6 +107,7 @@ class LoadInputsAndTargets(object):
         y_feats_dict = OrderedDict()  # OrderedDict[str, List[np.ndarray]]
         uttid_list = []  # List[str]
 
+#        logging.warning('data loading START')
         for uttid, info in batch:
             uttid_list.append(uttid)
 
@@ -116,7 +121,18 @@ class LoadInputsAndTargets(object):
                     x = self._get_from_loader(
                         filepath=inp["feat"], filetype=inp.get("filetype", "mat")
                     )
+                    if x.dtype == np.int16:
+                        x = x / 2 ** 15
                     x_feats_dict.setdefault(inp["name"], []).append(x)
+
+                if "speaker1_wav" in info and "speaker2_wav" in info:
+                    x_feats_dict.setdefault("speaker1_wav", []).append(
+                        self._get_from_loader(info["speaker1_wav"], filetype="sound")
+                    )
+                    x_feats_dict.setdefault("speaker2_wav", []).append(
+                        self._get_from_loader(info["speaker2_wav"], filetype="sound")
+                    )
+
             # FIXME(kamo): Dirty way to load only speaker_embedding
             elif self.mode == "tts" and self.use_speaker_embedding:
                 for idx, inp in enumerate(info["input"]):
@@ -154,6 +170,7 @@ class LoadInputsAndTargets(object):
 
                     y_feats_dict.setdefault(inp["name"], []).append(x)
 
+
         if self.mode == "asr":
             return_batch, uttid_list = self._create_batch_asr(
                 x_feats_dict, y_feats_dict, uttid_list
@@ -171,14 +188,17 @@ class LoadInputsAndTargets(object):
         else:
             raise NotImplementedError
 
+#        logging.warning(uttid_list)
         if self.preprocessing is not None:
             # Apply pre-processing all input features
             for x_name in return_batch.keys():
-                if x_name.startswith("input"):
+                if x_name.startswith("input") or x_name.startswith("speaker"):
                     return_batch[x_name] = self.preprocessing(
                         return_batch[x_name], uttid_list, **self.preprocess_args
                     )
 
+
+#        logging.warning('data loading END')
         # Doesn't return the names now.
         return tuple(return_batch.values())
 
@@ -215,7 +235,7 @@ class LoadInputsAndTargets(object):
                     filter(lambda i: len(ys[0][i]) > 0, range(len(ys[0])))
                 )
                 for n in range(1, len(y_feats_dict)):
-                    nonzero_idx = filter(lambda i: len(ys[n][i]) > 0, nonzero_idx)
+                    nonzero_idx = list(filter(lambda i: len(ys[n][i]) > 0, nonzero_idx))
         else:
             # Note(kamo): Be careful not to make nonzero_idx to a generator
             nonzero_idx = list(range(len(xs[0])))
@@ -234,7 +254,16 @@ class LoadInputsAndTargets(object):
             )
 
         # remove zero-length samples
-        xs = [[x[i] for i in nonzero_sorted_idx] for x in xs]
+        if self.test_nmics > 0 and xs[0][0].ndim > 1:
+            # x (time, channel) --> (time, self.test_nmics)
+            # randomly select self.test_nmics channels
+            chs = np.random.choice(xs[0][0].shape[1], self.test_nmics, replace=False)
+            if self.test_nmics == 1:
+                xs = [[x[i][:, chs].squeeze(-1) for i in nonzero_sorted_idx] for x in xs]
+            else:
+                xs = [[x[i][:, chs] for i in nonzero_sorted_idx] for x in xs]
+        else:
+            xs = [[x[i] for i in nonzero_sorted_idx] for x in xs]
         uttid_list = [uttid_list[i] for i in nonzero_sorted_idx]
 
         x_names = list(x_feats_dict.keys())
@@ -415,7 +444,8 @@ class LoadInputsAndTargets(object):
             loader = self._loaders.get(filepath)
             if loader is None:
                 # To avoid disk access, create loader only for the first time
-                loader = SoundHDF5File(filepath, "r", dtype="int16")
+                #loader = SoundHDF5File(filepath, "r", dtype="int16")
+                loader = SoundHDF5File(filepath, "r", dtype=None)
                 self._loaders[filepath] = loader
             array, rate = loader[key]
             return array
@@ -425,10 +455,12 @@ class LoadInputsAndTargets(object):
             #                "filetype": "sound"},
             # Assume PCM16
             if not self.keep_all_data_on_mem:
-                array, _ = soundfile.read(filepath, dtype="int16")
+                #array, _ = soundfile.read(filepath, dtype="int16")
+                array, _ = soundfile.read(filepath, dtype=None)
                 return array
             if filepath not in self._loaders:
-                array, _ = soundfile.read(filepath, dtype="int16")
+                #array, _ = soundfile.read(filepath, dtype="int16")
+                array, _ = soundfile.read(filepath, dtype=None)
                 self._loaders[filepath] = array
             return self._loaders[filepath]
         elif filetype == "npz":
@@ -459,9 +491,13 @@ class LoadInputsAndTargets(object):
             # In this case, "123" indicates the starting points of the matrix
             # load_mat can load both matrix and vector
             if not self.keep_all_data_on_mem:
-                return kaldiio.load_mat(filepath)
+                data = kaldiio.load_mat(filepath)
+                return data[1] if isinstance(data, tuple) else data
+#                return kaldiio.load_mat(filepath)
             if filepath not in self._loaders:
                 self._loaders[filepath] = kaldiio.load_mat(filepath)
+                if isinstance(self._loaders[filepath], tuple):
+                    self._loaders[filepath] = self._loaders[filepath][1]
             return self._loaders[filepath]
         elif filetype == "scp":
             # e.g.

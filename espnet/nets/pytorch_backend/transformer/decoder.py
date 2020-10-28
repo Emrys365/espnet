@@ -6,6 +6,8 @@
 
 """Decoder definition."""
 
+import logging
+
 from typing import Any
 from typing import List
 from typing import Tuple
@@ -15,8 +17,12 @@ import torch
 from espnet.nets.pytorch_backend.nets_utils import rename_state_dict
 from espnet.nets.pytorch_backend.transformer.attention import MultiHeadedAttention
 from espnet.nets.pytorch_backend.transformer.decoder_layer import DecoderLayer
+from espnet.nets.pytorch_backend.transformer.dynamic_conv import DynamicConvolution
+from espnet.nets.pytorch_backend.transformer.dynamic_conv2d import DynamicConvolution2D
 from espnet.nets.pytorch_backend.transformer.embedding import PositionalEncoding
 from espnet.nets.pytorch_backend.transformer.layer_norm import LayerNorm
+from espnet.nets.pytorch_backend.transformer.lightconv import LightweightConvolution
+from espnet.nets.pytorch_backend.transformer.lightconv2d import LightweightConvolution2D
 from espnet.nets.pytorch_backend.transformer.mask import subsequent_mask
 from espnet.nets.pytorch_backend.transformer.positionwise_feed_forward import (
     PositionwiseFeedForward,  # noqa: H301
@@ -40,7 +46,6 @@ def _pre_hook(
 
 class Decoder(BatchScorerInterface, torch.nn.Module):
     """Transfomer decoder module.
-
     :param int odim: output dim
     :param int attention_dim: dimention of attention
     :param int attention_heads: the number of heads of multi head attention
@@ -61,8 +66,12 @@ class Decoder(BatchScorerInterface, torch.nn.Module):
     def __init__(
         self,
         odim,
+        selfattention_layer_type="selfattn",
         attention_dim=256,
         attention_heads=4,
+        conv_wshare=4,
+        conv_kernel_length=11,
+        conv_usebias=False,
         linear_units=2048,
         num_blocks=6,
         dropout_rate=0.1,
@@ -98,22 +107,126 @@ class Decoder(BatchScorerInterface, torch.nn.Module):
         else:
             raise NotImplementedError("only `embed` or torch.nn.Module is supported.")
         self.normalize_before = normalize_before
-        self.decoders = repeat(
-            num_blocks,
-            lambda: DecoderLayer(
-                attention_dim,
-                MultiHeadedAttention(
-                    attention_heads, attention_dim, self_attention_dropout_rate
+        if selfattention_layer_type == "selfattn":
+            logging.info("decoder self-attention layer type = self-attention")
+            self.decoders = repeat(
+                num_blocks,
+                lambda lnum: DecoderLayer(
+                    attention_dim,
+                    MultiHeadedAttention(
+                        attention_heads, attention_dim, self_attention_dropout_rate
+                    ),
+                    MultiHeadedAttention(
+                        attention_heads, attention_dim, src_attention_dropout_rate
+                    ),
+                    PositionwiseFeedForward(attention_dim, linear_units, dropout_rate),
+                    dropout_rate,
+                    normalize_before,
+                    concat_after,
                 ),
-                MultiHeadedAttention(
-                    attention_heads, attention_dim, src_attention_dropout_rate
+            )
+        elif selfattention_layer_type == "lightconv":
+            logging.info("decoder self-attention layer type = lightweight convolution")
+            self.decoders = repeat(
+                num_blocks,
+                lambda lnum: DecoderLayer(
+                    attention_dim,
+                    LightweightConvolution(
+                        conv_wshare,
+                        attention_dim,
+                        self_attention_dropout_rate,
+                        conv_kernel_length,
+                        lnum,
+                        use_kernel_mask=True,
+                        use_bias=conv_usebias,
+                    ),
+                    MultiHeadedAttention(
+                        attention_heads, attention_dim, src_attention_dropout_rate
+                    ),
+                    PositionwiseFeedForward(attention_dim, linear_units, dropout_rate),
+                    dropout_rate,
+                    normalize_before,
+                    concat_after,
                 ),
-                PositionwiseFeedForward(attention_dim, linear_units, dropout_rate),
-                dropout_rate,
-                normalize_before,
-                concat_after,
-            ),
-        )
+            )
+        elif selfattention_layer_type == "lightconv2d":
+            logging.info(
+                "decoder self-attention layer "
+                "type = lightweight convolution 2-dimentional"
+            )
+            self.decoders = repeat(
+                num_blocks,
+                lambda lnum: DecoderLayer(
+                    attention_dim,
+                    LightweightConvolution2D(
+                        conv_wshare,
+                        attention_dim,
+                        self_attention_dropout_rate,
+                        conv_kernel_length,
+                        lnum,
+                        use_kernel_mask=True,
+                        use_bias=conv_usebias,
+                    ),
+                    MultiHeadedAttention(
+                        attention_heads, attention_dim, src_attention_dropout_rate
+                    ),
+                    PositionwiseFeedForward(attention_dim, linear_units, dropout_rate),
+                    dropout_rate,
+                    normalize_before,
+                    concat_after,
+                ),
+            )
+        elif selfattention_layer_type == "dynamicconv":
+            logging.info("decoder self-attention layer type = dynamic convolution")
+            self.decoders = repeat(
+                num_blocks,
+                lambda lnum: DecoderLayer(
+                    attention_dim,
+                    DynamicConvolution(
+                        conv_wshare,
+                        attention_dim,
+                        self_attention_dropout_rate,
+                        conv_kernel_length,
+                        lnum,
+                        use_kernel_mask=True,
+                        use_bias=conv_usebias,
+                    ),
+                    MultiHeadedAttention(
+                        attention_heads, attention_dim, src_attention_dropout_rate
+                    ),
+                    PositionwiseFeedForward(attention_dim, linear_units, dropout_rate),
+                    dropout_rate,
+                    normalize_before,
+                    concat_after,
+                ),
+            )
+        elif selfattention_layer_type == "dynamicconv2d":
+            logging.info(
+                "decoder self-attention layer type = dynamic convolution 2-dimentional"
+            )
+            self.decoders = repeat(
+                num_blocks,
+                lambda lnum: DecoderLayer(
+                    attention_dim,
+                    DynamicConvolution2D(
+                        conv_wshare,
+                        attention_dim,
+                        self_attention_dropout_rate,
+                        conv_kernel_length,
+                        lnum,
+                        use_kernel_mask=True,
+                        use_bias=conv_usebias,
+                    ),
+                    MultiHeadedAttention(
+                        attention_heads, attention_dim, src_attention_dropout_rate
+                    ),
+                    PositionwiseFeedForward(attention_dim, linear_units, dropout_rate),
+                    dropout_rate,
+                    normalize_before,
+                    concat_after,
+                ),
+            )
+        self.selfattention_layer_type = selfattention_layer_type
         if self.normalize_before:
             self.after_norm = LayerNorm(attention_dim)
         if use_output_layer:
@@ -123,7 +236,6 @@ class Decoder(BatchScorerInterface, torch.nn.Module):
 
     def forward(self, tgt, tgt_mask, memory, memory_mask):
         """Forward decoder.
-
         :param torch.Tensor tgt: input token ids, int64 (batch, maxlen_out)
                                  if input_layer == "embed"
                                  input tensor (batch, maxlen_out, #mels)
@@ -155,7 +267,6 @@ class Decoder(BatchScorerInterface, torch.nn.Module):
 
     def forward_one_step(self, tgt, tgt_mask, memory, cache=None):
         """Forward one step.
-
         :param torch.Tensor tgt: input token ids, int64 (batch, maxlen_out)
         :param torch.Tensor tgt_mask: input token mask,  (batch, maxlen_out)
                                       dtype=torch.uint8 in PyTorch 1.2-
@@ -186,10 +297,34 @@ class Decoder(BatchScorerInterface, torch.nn.Module):
 
         return y, new_cache
 
+    def recognize(self, tgt, tgt_mask, memory):
+        """recognize one step
+
+        :param torch.Tensor tgt: input token ids, int64 (batch, maxlen_out)
+        :param torch.Tensor tgt_mask: input token mask,  (batch, maxlen_out)
+                                      dtype=torch.uint8 in PyTorch 1.2-
+                                      dtype=torch.bool in PyTorch 1.2+ (include 1.2)
+        :param torch.Tensor memory: encoded memory, float32  (batch, maxlen_in, feat)
+        :return x: decoded token score before softmax (batch, maxlen_out, token)
+        :rtype: torch.Tensor
+        """
+        x = self.embed(tgt)
+        x, tgt_mask, memory, memory_mask = self.decoders(x, tgt_mask, memory, None)
+        if self.normalize_before:
+            x_ = self.after_norm(x[:, -1])
+        else:
+            x_ = x[:, -1]
+        if self.output_layer is not None:
+            return torch.log_softmax(self.output_layer(x_), dim=-1)
+        else:
+            return x_
+
     # beam search API (see ScorerInterface)
     def score(self, ys, state, x):
         """Score."""
         ys_mask = subsequent_mask(len(ys), device=x.device).unsqueeze(0)
+        if self.selfattention_layer_type != "selfattn":
+            state = None
         logp, state = self.forward_one_step(
             ys.unsqueeze(0), ys_mask, x.unsqueeze(0), cache=state
         )
@@ -200,18 +335,15 @@ class Decoder(BatchScorerInterface, torch.nn.Module):
         self, ys: torch.Tensor, states: List[Any], xs: torch.Tensor
     ) -> Tuple[torch.Tensor, List[Any]]:
         """Score new token batch (required).
-
         Args:
             ys (torch.Tensor): torch.int64 prefix tokens (n_batch, ylen).
             states (List[Any]): Scorer states for prefix tokens.
             xs (torch.Tensor):
                 The encoder feature that generates ys (n_batch, xlen, n_feat).
-
         Returns:
             tuple[torch.Tensor, List[Any]]: Tuple of
                 batchfied scores for next token with shape of `(n_batch, n_vocab)`
                 and next state list for ys.
-
         """
         # merge states
         n_batch = len(ys)

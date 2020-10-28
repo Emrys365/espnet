@@ -218,8 +218,10 @@ def load_trained_modules(idim, odim, args, interface=ASRInterface):
 
     enc_model_path = args.enc_init
     dec_model_path = args.dec_init
+    ctc_model_path = args.ctc_init
     enc_modules = args.enc_init_mods
     dec_modules = args.dec_init_mods
+    ctc_modules = args.ctc_init_mods
 
     model_class = dynamic_import(args.model_module)
     main_model = model_class(idim, odim, args)
@@ -231,6 +233,7 @@ def load_trained_modules(idim, odim, args, interface=ASRInterface):
     for model_path, modules in [
         (enc_model_path, enc_modules),
         (dec_model_path, dec_modules),
+        (ctc_model_path, ctc_modules),
     ]:
         if model_path is not None:
             if os.path.isfile(model_path):
