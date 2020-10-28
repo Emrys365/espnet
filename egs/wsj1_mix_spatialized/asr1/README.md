@@ -2,7 +2,7 @@
 
 This recipe provides source code for data simulation and models related to the paper "End-to-End Far-Field Speech Recognition with Uniﬁed Dereverberation and Beamforming".
 
-## Prequisite Installation
+## Prerequisite Installation
 1. Kaldi and ESPnet (v.0.5.3 in this repository)
 2. MATLAB (for data simulation)
 
