@@ -9,6 +9,7 @@ from typing import Union
 from pytorch_wpe import wpe_one_iteration
 
 import logging
+import matplotlib.pyplot as plt
 import numpy
 import torch
 import torch.nn as nn
@@ -283,6 +284,22 @@ class Frontend(nn.Module):
         mask_speech1 = mask_speech1.transpose(-1, -3)
         mask_speech2 = mask_speech2.transpose(-1, -3)
 
+#        plt.subplot(2,1,1)
+#        plt.pcolor(mask_speech1[0,:,0,:].cpu().numpy().T)
+#        plt.colorbar()
+#        plt.subplot(2,1,2)
+#        plt.pcolor(mask_speech2[0,:,0,:].cpu().numpy().T)
+#        plt.colorbar()
+#        plt.savefig('/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/espnet-v0.5.3/multi-channel/wsj-mix-spatialized/masks.jpg')
+#        plt.clf()
+#        plt.subplot(2,1,1)
+#        plt.pcolor(h[0][0].cpu().abs().numpy().T)
+#        plt.colorbar()
+#        plt.subplot(2,1,2)
+#        plt.pcolor(h[1][0].cpu().abs().numpy().T)
+#        plt.colorbar()
+#        plt.savefig('/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/espnet-v0.5.3/multi-channel/wsj-mix-spatialized/spectra.jpg')
+#        plt.clf()
         return h, ilens, [mask_speech1, mask_speech2]
 
 

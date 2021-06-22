@@ -1,0 +1,7 @@
+process:
+ -
+  type: "stft"
+  win_length: 200
+  n_fft: 256
+  n_shift: 80
+  window: "han"

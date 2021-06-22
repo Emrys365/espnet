@@ -121,7 +121,7 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
 
         if args.mtlalpha > 0.0:
             self.ctc = CTC(
-                odim, args.adim, args.dropout_rate, ctc_type=args.ctc_type, reduce=False
+                odim, args.adim, args.dropout_rate, ctc_type=args.ctc_type, reduce=False, ignore_nan_grad=args.ignore_nan_grad
             )
         else:
             self.ctc = None

@@ -42,6 +42,8 @@ class LoadInputsAndTargets(object):
         mode="asr",
         preprocess_conf=None,
         load_input=True,
+        load_input_lengths=False,
+        load_wav_ref=True,
         load_output=True,
         sort_in_input_length=True,
         use_speaker_embedding=False,
@@ -76,6 +78,10 @@ class LoadInputsAndTargets(object):
         self.mode = mode
         self.load_output = load_output
         self.load_input = load_input
+        # for loading lengths of the original waveforms
+        self.load_input_lengths = load_input_lengths
+        # load wave references if exists
+        self.load_wav_ref = load_wav_ref
         self.sort_in_input_length = sort_in_input_length
         self.use_speaker_embedding = use_speaker_embedding
         self.use_second_target = use_second_target
@@ -125,13 +131,21 @@ class LoadInputsAndTargets(object):
                         x = x / 2 ** 15
                     x_feats_dict.setdefault(inp["name"], []).append(x)
 
-                if "speaker1_wav" in info and "speaker2_wav" in info:
-                    x_feats_dict.setdefault("speaker1_wav", []).append(
-                        self._get_from_loader(info["speaker1_wav"], filetype="sound")
-                    )
-                    x_feats_dict.setdefault("speaker2_wav", []).append(
-                        self._get_from_loader(info["speaker2_wav"], filetype="sound")
-                    )
+                if self.load_wav_ref:
+                    #if "speaker1_wav" in info and "speaker2_wav" in info:
+                    #    x_feats_dict.setdefault("speaker1_wav", []).append(
+                    #        self._get_from_loader(info["speaker1_wav"], filetype="sound")
+                    #    )
+                    #    x_feats_dict.setdefault("speaker2_wav", []).append(
+                    #        self._get_from_loader(info["speaker2_wav"], filetype="sound")
+                    #    )
+                    if "speaker1" in info and "speaker2" in info:
+                        x_feats_dict.setdefault("speaker1_wav", []).append(
+                            self._get_from_loader(info["speaker1"]["input_feat"], filetype="sound")
+                        )
+                        x_feats_dict.setdefault("speaker2_wav", []).append(
+                            self._get_from_loader(info["speaker2"]["input_feat"], filetype="sound")
+                        )
 
             # FIXME(kamo): Dirty way to load only speaker_embedding
             elif self.mode == "tts" and self.use_speaker_embedding:
@@ -192,7 +206,7 @@ class LoadInputsAndTargets(object):
         if self.preprocessing is not None:
             # Apply pre-processing all input features
             for x_name in return_batch.keys():
-                if x_name.startswith("input") or x_name.startswith("speaker"):
+                if x_name.startswith("input"): #or x_name.startswith("speaker"):
                     return_batch[x_name] = self.preprocessing(
                         return_batch[x_name], uttid_list, **self.preprocess_args
                     )
@@ -258,10 +272,11 @@ class LoadInputsAndTargets(object):
             # x (time, channel) --> (time, self.test_nmics)
             # randomly select self.test_nmics channels
             chs = np.random.choice(xs[0][0].shape[1], self.test_nmics, replace=False)
+            #print([[x[i].shape for i in nonzero_sorted_idx] for x in xs], flush=True)
             if self.test_nmics == 1:
-                xs = [[x[i][:, chs].squeeze(-1) for i in nonzero_sorted_idx] for x in xs]
+                xs = [[x[i][:, chs].squeeze(-1) if x[i].ndim > 1 else x[i] for i in nonzero_sorted_idx] for x in xs]
             else:
-                xs = [[x[i][:, chs] for i in nonzero_sorted_idx] for x in xs]
+                xs = [[x[i][:, chs] if x[i].ndim > 1 else x[i] for i in nonzero_sorted_idx] for x in xs]
         else:
             xs = [[x[i] for i in nonzero_sorted_idx] for x in xs]
         uttid_list = [uttid_list[i] for i in nonzero_sorted_idx]
@@ -281,6 +296,9 @@ class LoadInputsAndTargets(object):
             )
         else:
             return_batch = OrderedDict([(x_name, x) for x_name, x in zip(x_names, xs)])
+
+        if self.load_input_lengths:
+            return_batch["wav_lengths"] = [len(wav) for wav in xs[0]]
         return return_batch, uttid_list
 
     def _create_batch_mt(self, x_feats_dict, y_feats_dict, uttid_list):

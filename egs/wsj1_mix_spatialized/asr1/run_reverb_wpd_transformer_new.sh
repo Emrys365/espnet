@@ -351,6 +351,7 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         --preprocess-conf ${preprocess_config} \
         --num-spkrs ${num_spkrs} \
         --use-WPD-frontend False \
+        --load-wav-ref False \
         ${init_frontend:+--init-frontend $init_frontend} \
         ${init_asr:+--init-asr $init_asr} \
         ${init_from_mdl:+--init-from-mdl $init_from_mdl} \

@@ -83,8 +83,10 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
                            help='which WPD implementation to be used')
         group.add_argument('--use-padertorch-frontend', type=strtobool, default=False,
                            help='use padertorch-like frontend')
+        group.add_argument('--use-complex-mask', type=strtobool, default=False,
+                           help='use complex masks instead of magnitude masks, only works when use_padertorch_frontend is True')
         group.add_argument('--use-vad-mask', type=strtobool, default=False,
-                           help='use VAD-like masks instead of T-F masks, only works when use_padertorch_frontend is True')
+                           help='use VAD-like masks instead of T-F masks, only works when use_padertorch_frontend is True and use_complex_mask is False')
         group.add_argument('--multich-epochs', default=-1, type=int,
                            help='From which epoch the multichannel data is used')
         group.add_argument('--test-btaps', type=int, default=-1,
@@ -97,6 +99,18 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
                            help='WPE tag for selecting a specific implementation')
         group.add_argument('--beamforming-tag', type=str, default='default',
                            help='WPE tag for selecting a specific implementation')
+        group.add_argument('--double-precision', type=strtobool, default=True,
+                           help='Whether to apply double precision in the frontend')
+        group.add_argument('--diagonal-loading', type=strtobool, default=True,
+                           help='Whether to apply diagonal loading in the frontend')
+        group.add_argument('--mask-flooring', type=strtobool, default=True,
+                           help='Whether to apply mask flooring in the frontend')
+        group.add_argument('--flooring-thres-wpe', type=float, default=1e-6,
+                           help='Mask flooring threshold for WPE')
+        group.add_argument('--flooring-thres-bf', type=float, default=1e-2,
+                           help='Mask flooring threshold for beamforming')
+        group.add_argument('--use-torch-solver', type=strtobool, default=True,
+                           help='Whether to use torch solver in the frontend')
         return parser
 
     @property
@@ -110,8 +124,12 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
                 from espnet.nets.pytorch_backend.frontends.frontend_wpd_v5 import frontend_for
                 logging.warning('Using WPD frontend')
             elif getattr(args, "use_padertorch_frontend", False):
-                from espnet.nets.pytorch_backend.frontends.frontend_v2 import frontend_for
-                logging.warning('Using padertorch-like frontend')
+                if getattr(args, "use_complex_mask", False):
+                    from espnet.nets.pytorch_backend.frontends.frontend_v2_complex_mask import frontend_for
+                    logging.warning('Using padertorch-like frontend with complex masks')
+                else:
+                    from espnet.nets.pytorch_backend.frontends.frontend_v2 import frontend_for
+                    logging.warning('Using padertorch-like frontend')
             else:
                 from espnet.nets.pytorch_backend.frontends.frontend import frontend_for
 
@@ -167,7 +185,9 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         self.adim = args.adim
         self.mtlalpha = args.mtlalpha
         if args.mtlalpha > 0.0:
-            self.ctc = CTC(odim, args.adim, args.dropout_rate, ctc_type=args.ctc_type, reduce=False)
+            self.ctc = CTC(
+                odim, args.adim, args.dropout_rate, ctc_type=args.ctc_type, reduce=False, ignore_nan_grad=args.ignore_nan_grad
+            )
         else:
             self.ctc = None
 
@@ -408,7 +428,7 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         beam = recog_args.beam_size
         penalty = recog_args.penalty
         ctc_weight = recog_args.ctc_weight
-        
+
         # preprare sos
         y = self.sos
         vy = h.new_zeros(1).long()
@@ -472,10 +492,10 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
                     local_best_scores, local_best_ids = torch.topk(
                         local_att_scores, ctc_beam, dim=1)
                     ctc_scores, ctc_states = ctc_prefix_score(
-                        hyp['yseq'], local_best_ids[0], hyp['ctc_state_prev'])
+                        hyp['yseq'], local_best_ids[0].cpu(), hyp['ctc_state_prev'])
                     local_scores = \
                         (1.0 - ctc_weight) * local_att_scores[:, local_best_ids[0]] \
-                        + ctc_weight * torch.from_numpy(ctc_scores - hyp['ctc_score_prev'])
+                        + ctc_weight * torch.as_tensor(ctc_scores - hyp['ctc_score_prev'], device=enc_output.device)
                     if rnnlm:
                         local_scores += recog_args.lm_weight * local_lm_scores[:, local_best_ids[0]]
                     local_best_scores, joint_best_ids = torch.topk(local_scores, beam, dim=1)

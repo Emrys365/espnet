@@ -103,13 +103,11 @@ class Frontend(nn.Module):
     def wpe(self, data: ComplexTensor, ilens: torch.LongTensor, irms=None) \
             -> Tuple[ComplexTensor, torch.LongTensor, ComplexTensor]:
         """The forward function
-
         Notation:
             B: Batch
             C: Channel
             T: Time or Sequence length
             F: Freq or Some dimension of the feature vector
-
         Args:
             data: (B, C, T, F)
             ilens: (B,)
@@ -155,20 +153,17 @@ class Frontend(nn.Module):
         self, data: ComplexTensor, ilens: torch.LongTensor, power=None, irms=None
     ) -> Tuple[ComplexTensor, torch.LongTensor, ComplexTensor]:
         """The forward function
-
         Notation:
             B: Batch
             C: Channel
             T: Time or Sequence length
             F: Freq
-
         Args:
             data (ComplexTensor): (B, T, C, F)
             ilens (torch.Tensor): (B,)
         Returns:
             enhanced (ComplexTensor): (B, T, F)
             ilens (torch.Tensor): (B,)
-
         """
 
         def apply_beamforming_souden(data, ilens, psd_speech, psd_noise):

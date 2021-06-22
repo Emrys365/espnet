@@ -274,7 +274,7 @@ def get_mvdr_vector_with_atf(
     atf = FC.matmul(psd_speech, atf)
 
     try:
-        psd_n_i = (psd_n + eps * eye).inverse()
+        psd_n_i = (psd_n + epsilon * eye + eps).inverse()
     except:
         eps2 = 1e-4
         try:

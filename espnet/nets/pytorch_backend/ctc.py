@@ -19,11 +19,12 @@ class CTC(torch.nn.Module):
     :param bool reduce: reduce the CTC loss into a scalar
     """
 
-    def __init__(self, odim, eprojs, dropout_rate, ctc_type="warpctc", reduce=True):
+    def __init__(self, odim, eprojs, dropout_rate, ctc_type="warpctc", reduce=True, ignore_nan_grad=False):
         super().__init__()
         self.dropout_rate = dropout_rate
         self.loss = None
         self.ctc_lo = torch.nn.Linear(eprojs, odim)
+        self.ignore_nan_grad = ignore_nan_grad
 
         # In case of Pytorch >= 1.2.0, CTC will be always builtin
         self.ctc_type = (
@@ -54,12 +55,65 @@ class CTC(torch.nn.Module):
             # Use the deterministic CuDNN implementation of CTC loss to avoid
             #  [issue#17798](https://github.com/pytorch/pytorch/issues/17798)
             with torch.backends.cudnn.flags(deterministic=True):
-                loss = self.ctc_loss(th_pred, th_target, th_ilen, th_olen)
-            # Batch-size average
-            loss = loss / th_pred.size(1)
+                loss = self.ctc_loss(th_pred, th_target.cpu(), th_ilen.cpu(), th_olen.cpu())
+
+            if loss.requires_grad and self.ignore_nan_grad:
+                # ctc_grad: (L, B, O)
+                ctc_grad = loss.grad_fn(torch.ones_like(loss))
+                ctc_grad = ctc_grad.sum([0, 2])
+                indices = torch.isfinite(ctc_grad)
+                size = indices.long().sum()
+                if size == 0:
+                    # Return as is
+                    logging.warning(
+                        "All samples in this mini-batch got nan grad."
+                        " Returning nan value instead of CTC loss"
+                    )
+                elif size != th_pred.size(1):
+                    logging.warning(
+                        f"{th_pred.size(1) - size}/{th_pred.size(1)}"
+                        " samples got nan grad."
+                        " These were ignored for CTC loss."
+                    )
+
+                    # Create mask for target
+                    target_mask = torch.full(
+                        [th_target.size(0)],
+                        1,
+                        dtype=torch.bool,
+                        device=th_target.device,
+                    )
+                    s = 0
+                    for ind, le in enumerate(th_olen):
+                        if not indices[ind]:
+                            target_mask[s : s + le] = 0
+                        s += le
+
+                    # Calc loss again using maksed data
+                    loss = self.ctc_loss(
+                        th_pred[:, indices, :],
+                        th_target[target_mask],
+                        th_ilen[indices],
+                        th_olen[indices],
+                    )
+            else:
+                size = th_pred.size(1)
+
+            if self.reduce:
+                # Batch-size average
+                loss = loss.sum() / size
+            else:
+                loss = loss / size
             return loss
+
         elif self.ctc_type == "warpctc":
-            return self.ctc_loss(th_pred, th_target, th_ilen, th_olen)
+            loss = self.ctc_loss(th_pred, th_target, th_ilen, th_olen)
+            if self.reduce:
+                # NOTE: sum() is needed to keep consistency since warpctc
+                # return as tensor w/ shape (1,)
+                # but builtin return as tensor w/o shape (scalar).
+                loss = loss.sum()
+            return loss
         else:
             raise NotImplementedError
 
@@ -109,15 +163,15 @@ class CTC(torch.nn.Module):
         if self.ctc_type == "builtin":
             # use GPU when using the cuDNN implementation
             ys_true = to_device(self, ys_true)
-        self.loss = to_device(self, self.loss_fn(ys_hat, ys_true, hlens, olens)).to(
-            dtype=dtype
+        self.loss = self.loss_fn(ys_hat, ys_true, hlens, olens).to(
+            device=hs_pad.device, dtype=hs_pad.dtype
         )
-        if self.reduce:
-            # NOTE: sum() is needed to keep consistency
-            # since warpctc return as tensor w/ shape (1,)
-            # but builtin return as tensor w/o shape (scalar).
-            self.loss = self.loss.sum()
-            logging.info("ctc loss:" + str(float(self.loss)))
+        # if self.reduce:
+        #     # NOTE: sum() is needed to keep consistency
+        #     # since warpctc return as tensor w/ shape (1,)
+        #     # but builtin return as tensor w/o shape (scalar).
+        #     self.loss = self.loss.sum()
+        #     logging.info("ctc loss:" + str(float(self.loss)))
 
         return self.loss
 
@@ -228,6 +282,7 @@ def ctc_for(args, odim, reduce=True):
                 args.dropout_rate[0],
                 ctc_type=args.ctc_type,
                 reduce=reduce,
+                ignore_nan_grad=args.ignore_nan_grad,
             )
             ctcs_list.append(ctc)
         else:
@@ -238,6 +293,7 @@ def ctc_for(args, odim, reduce=True):
                     args.dropout_rate[idx],
                     ctc_type=args.ctc_type,
                     reduce=reduce,
+                    ignore_nan_grad=args.ignore_nan_grad,
                 )
                 ctcs_list.append(ctc)
         return ctcs_list

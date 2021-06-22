@@ -82,6 +82,7 @@ class CustomConverter(object):
         """
         # batch should be located in list
         assert len(batch) == 1
+        #print([b.shape if getattr(b, 'shape', None) else len(list(b)) for b in batch[0]], flush=True)
         xs, ys = batch[0]
         # Convert zip object to list in python 3.x
         ys = list(ys)
@@ -246,25 +247,30 @@ def train(args):
     if args.init_from_mdl:
         init_wpd_model_from_mvdr_wpe(args.init_from_mdl, model, freeze_parms=True)
         logging.info("Loading pretrained model " + args.init_from_mdl)
+
     elif args.init_frontend and args.init_asr:
         match_keys = r'^frontend\..*' #r'\.enc\..*' # r'^(?!.*enc_sd).*$'
-        load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=True)
+        #load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=True)
+        load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=False)
         match_keys = r'(encoder|decoder|ctc)'
         #match_keys = r'^(?!.*frontend).*'
 #        load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=True)
         load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=False)
 #        torch_load(args.init_model_path, model)
         logging.info("Loading pretrained model " + args.init_frontend + " and " + args.init_asr)
+
     elif args.init_frontend:
         match_keys = r'^frontend\..*' #r'\.enc\..*' # r'^(?!.*enc_sd).*$'
         load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=False)
 #        torch_load(args.init_model_path, model)
         logging.info("Loading pretrained model " + args.init_frontend)
+
     elif args.init_asr:
         #match_keys = r'^(?!.*frontend).*' #r'\.enc\..*' # r'^(?!.*enc_sd).*$'
         #load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=False)
         match_keys = r'(encoder|decoder|ctc)'
-        load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=True)
+        #load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=True)
+        load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=False)
 #        torch_load(args.init_model_path, model)
         logging.info("Loading pretrained model " + args.init_asr)
 
@@ -374,11 +380,13 @@ def train(args):
 
     load_tr = LoadInputsAndTargets(
         mode='asr', load_output=True, preprocess_conf=args.preprocess_conf,
+        load_wav_ref=args.load_wav_ref,
         preprocess_args={'train': True},  # Switch the mode of preprocessing
         test_nmics=getattr(args, 'test_nmics', -1)
     )
     load_cv = LoadInputsAndTargets(
         mode='asr', load_output=True, preprocess_conf=args.preprocess_conf,
+        load_wav_ref=args.load_wav_ref,
         preprocess_args={'train': False},  # Switch the mode of preprocessing
         test_nmics=getattr(args, 'test_nmics', -1)
     )
@@ -417,7 +425,10 @@ def train(args):
         use_apex=use_apex,
     )
 
-    trainer = training.Trainer(updater, (args.epochs, "epoch"), out=args.outdir)
+    if args.update_interval_iters > 0:
+        trainer = training.Trainer(updater, (args.update_interval_iters, "iteration"), out=args.outdir)
+    else:
+        trainer = training.Trainer(updater, (args.epochs, "epoch"), out=args.outdir)
 
     if use_sortagrad:
         trainer.extend(ShufflingEnabler([train_iter]),
@@ -647,6 +658,7 @@ def recog(args):
 
     load_inputs_and_targets = LoadInputsAndTargets(
         mode='asr', load_output=True, sort_in_input_length=False,
+        load_wav_ref=getattr(train_args, 'load_wav_ref', True),
         preprocess_conf=train_args.preprocess_conf
         if args.preprocess_conf is None else args.preprocess_conf,
         preprocess_args={'train': False},

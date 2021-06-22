@@ -187,6 +187,7 @@ class CustomUpdater(StandardUpdater):
         train_iter = self.get_iterator("main")
         optimizer = self.get_optimizer("main")
         epoch = train_iter.epoch
+#        logging.warning('Training START')
 
         # Get the next batch (a list of json files)
         batch = train_iter.next()
@@ -199,6 +200,7 @@ class CustomUpdater(StandardUpdater):
         # on the validation set in every epoch.
         # see details in https://github.com/espnet/espnet/pull/1388
 
+#        logging.warning('  Model forward START')
         # Compute the loss at this time step and accumulate it
         #if self.ngpu == 0:
         if self.ngpu <= 1:
@@ -211,7 +213,9 @@ class CustomUpdater(StandardUpdater):
 #            )
             loss0 = data_parallel(self.model, x, range(self.ngpu))
 
+        #logging.warning('loss={}'.format(loss))
         loss = loss0.mean() / self.accum_grad
+#        logging.warning('  Model forward END')
 
         if math.isinf(float(loss)):
             logging.warning("Loss is inf. Skip this minibatch")
@@ -231,6 +235,7 @@ class CustomUpdater(StandardUpdater):
         else:
             loss.backward()
 
+#        logging.warning('  Model backward END')
         # gradient noise injection
         if self.grad_noise:
             from espnet.asr.asr_utils import add_gradient_noise
@@ -239,6 +244,29 @@ class CustomUpdater(StandardUpdater):
                 self.model, self.iteration, duration=100, eta=1.0, scale_factor=0.55
             )
 
+#        ### check model parameters and gradients
+#        for name, param in self.model.named_parameters():
+#            flag1 = torch.any(torch.isnan(param.detach()))
+#            flag2 = param.requires_grad and param.grad is not None \
+#                and torch.any(torch.isnan(param.grad.detach()))
+#            if flag1 or flag2:
+#                to_rm = "/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/libri_css/asr1_multich/dump_tmp/model_param_dict_iter{}.npy".format(self.iteration - 5)
+#                if self.iteration >= 5 and os.path.isfile(to_rm):
+#                    os.remove(to_rm)
+#                    snapshot_torm = "/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/libri_css/asr1_multich/exp/SimLibriUttmix-train_pytorch_train_multispkr_preprocess_4gpu_initASR_2ch_double_precision_bs4_testDUMP/results/snapshot.iter.{}".format(self.iteration+1)
+#                    assert os.path.isfile(snapshot_torm)
+#                    os.remove(snapshot_torm)
+#                param_dict = dict()
+#                for name, param in self.model.named_parameters():
+#                    if param.requires_grad and param.grad is not None:
+#                        param_dict[name] ={
+#                            "param": param.detach().cpu().numpy(),
+#                            "grad": param.grad.detach().cpu().numpy()
+#                        }
+#                np.save("/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/libri_css/asr1_multich/dump_tmp/model_param_dict_iter{}.npy".format(self.iteration), param_dict)
+#                np.save("/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/libri_css/asr1_multich/dump_tmp/batch.npy".format(self.iteration), batch)
+#                logging.warning(loss0)
+#                sys.exit(1)
 
         # update parameters
         self.forward_count += 1
@@ -260,11 +288,12 @@ class CustomUpdater(StandardUpdater):
 #                        "param": param.detach().cpu().numpy(),
 #                        "grad": param.grad.detach().cpu().numpy()
 #                    }
-#            np.save("xxx/model_param_dict.npy", param_dict)
+#            np.save("/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/libri_css/asr1_multich/dump_tmp/model_param_dict.npy", param_dict)
 #            sys.exit(1)
         else:
             optimizer.step()
         optimizer.zero_grad()
+#        logging.warning('Training END')
 
     def update(self):
         self.update_core()

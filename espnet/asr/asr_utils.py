@@ -422,6 +422,8 @@ def _torch_snapshot_object(trainer, target, filename, savefun):
         "model": model_state_dict,
         "optimizer": trainer.updater.get_optimizer("main").state_dict(),
     }
+    if hasattr(trainer.updater, "scheduler"):
+        snapshot_dict["scheduler"] = trainer.updater.scheduler
 
     # save snapshot dictionary
     fn = filename.format(trainer)
@@ -593,6 +595,10 @@ def torch_resume(snapshot_path, trainer):
     # retore optimizer states
     trainer.updater.get_optimizer("main").load_state_dict(snapshot_dict["optimizer"])
 
+    # retore lr scheduler states
+    if hasattr(snapshot_dict, "scheduler"):
+        trainer.updater.scheduler.load_state_dict(snapshot_dict["scheduler"])
+
     # delete opened snapshot
     del snapshot_dict
 
@@ -709,7 +715,8 @@ def plot_spectrogram(
     """
     spec = np.abs(spec)
     if mode == "db":
-        x = 20 * np.log10(spec + np.finfo(spec.dtype).eps)
+        #x = 20 * np.log10(spec + np.finfo(spec.dtype).eps)
+        x = 20 * np.log10(spec)
     elif mode == "linear":
         x = spec
     else:

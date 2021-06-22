@@ -267,8 +267,19 @@ def get_mvdr_vector_with_atf(
 #         atf = atf / complex_norm(atf)
     atf = FC.matmul(psd_speech, atf)
 
+    # Add eps
+    B, F = psd_n.shape[:2]
+    C = psd_n.size(-1)
+    eye = torch.eye(C, dtype=psd_n.dtype, device=psd_n.device)
+    shape = [1 for _ in range(psd_n.dim() - 2)] + [C, C]
+    eye = eye.view(*shape).repeat(B, F, 1, 1)
+    with torch.no_grad():
+        epsilon = FC.trace(psd_n).real.abs()[..., None, None] * eps
+        # in case that correlation_matrix is all-zero
+        epsilon = epsilon + eps
+
     # numerator: (..., C_1, C_2) x (..., C_2, 1) -> (..., C_1)
-    numerator = FC.solve(atf, psd_n)[0].squeeze(-1)
+    numerator = FC.solve(atf, psd_n + epsilon * eye)[0].squeeze(-1)
 #     numerator = FC.einsum("...ec,...cd->...ed", [ComplexTensor(np.linalg.inv(psd_noise.numpy())), psd_speech])
     denominator = FC.einsum("...d,...d->...", [atf.squeeze(-1).conj(), numerator])
     if normalize_ref_channel is not None:

@@ -344,6 +344,7 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         --valid-json ${datadir}/${train_dev}/data.json \
         --preprocess-conf ${preprocess_config} \
         --num-spkrs ${num_spkrs} \
+        --load-wav-ref False \
         ${batch_size:+--batch-size $batch_size} \
         ${use_vad_mask:+--use-vad-mask True} \
         ${init_frontend:+--init-frontend $init_frontend} \

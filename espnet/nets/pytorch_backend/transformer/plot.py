@@ -36,11 +36,17 @@ def _plot_and_save_attention(att_w, filename, xtokens=None, ytokens=None):
         if xtokens is not None:
             ax.set_xticks(numpy.linspace(0, len(xtokens) - 1, len(xtokens)))
             ax.set_xticks(numpy.linspace(0, len(xtokens) - 1, 1), minor=True)
-            ax.set_xticklabels(xtokens + [""], rotation=40)
+            if len(ax.get_xticks()) == len(xtokens + [""]):
+                ax.set_xticklabels(xtokens + [""], rotation=40)
+            else:
+                ax.set_xticklabels(xtokens, rotation=40)
         if ytokens is not None:
             ax.set_yticks(numpy.linspace(0, len(ytokens) - 1, len(ytokens)))
             ax.set_yticks(numpy.linspace(0, len(ytokens) - 1, 1), minor=True)
-            ax.set_yticklabels(ytokens + [""])
+            if len(ax.get_yticks()) == len(ytokens + [""]):
+                ax.set_yticklabels(ytokens + [""])
+            else:
+                ax.set_yticklabels(ytokens)
     fig.tight_layout()
     return fig
 

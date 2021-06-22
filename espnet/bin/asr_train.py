@@ -110,6 +110,12 @@ def get_parser(parser=None, required=True):
         type=int,
         help="Save snapshot interval iterations",
     )
+    parser.add_argument(
+        "--update-interval-iters",
+        default=0,
+        type=int,
+        help="Model update interval iterations",
+    )
     # task related
     parser.add_argument(
         "--train-json",
@@ -141,6 +147,12 @@ def get_parser(parser=None, required=True):
         type=str,
         choices=["builtin", "warpctc"],
         help="Type of CTC implementation to calculate loss.",
+    )
+    parser.add_argument(
+        "--ignore_nan_grad",
+        default=False,
+        type=strtobool,
+        help="Whether to ignore NaN gradients in CTC",
     )
     parser.add_argument(
         "--mtlalpha",
@@ -201,6 +213,14 @@ def get_parser(parser=None, required=True):
         type=int,
         nargs="?",
         help="How many epochs to use sortagrad for. 0 = deactivated, -1 = all epochs",
+    )
+    parser.add_argument(
+        "--load-input-lengths", type=strtobool, default=False,
+        help="Whether to load original input waveform lengths in each batch",
+    )
+    parser.add_argument(
+        "--load-wav-ref", type=strtobool, default=True,
+        help="Whether to load reference waveforms if exists in each batch",
     )
     parser.add_argument(
         "--batch-count",
