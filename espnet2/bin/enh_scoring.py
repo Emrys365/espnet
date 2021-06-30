@@ -8,9 +8,11 @@ from typing import Union
 from mir_eval.separation import bss_eval_sources
 import numpy as np
 from pystoi import stoi
+import torch
 from typeguard import check_argument_types
 
 from espnet.utils.cli_utils import get_commandline_args
+from espnet2.enh.espnet_model import ESPnetEnhancementModel
 from espnet2.fileio.datadir_writer import DatadirWriter
 from espnet2.fileio.sound_scp import SoundScpReader
 from espnet2.utils import config_argparse
@@ -65,15 +67,28 @@ def scoring(
                     "Reference must be multi-channel when the \
                     network output is multi-channel."
                 )
+            elif ref.ndim == inf.ndim == 3:
+                # multi-channel reference and output
+                ref = ref[..., ref_channel]
+                inf = inf[..., ref_channel]
 
             sdr, sir, sar, perm = bss_eval_sources(ref, inf, compute_permutation=True)
 
             for i in range(num_spk):
                 stoi_score = stoi(ref[i], inf[int(perm[i])], fs_sig=sample_rate)
+                si_snr_score = -float(
+                    ESPnetEnhancementModel.si_snr_loss(
+                        torch.from_numpy(ref[i][None, ...]),
+                        torch.from_numpy(inf[int(perm[i])][None, ...]),
+                    )
+                )
                 writer[f"STOI_spk{i + 1}"][key] = str(stoi_score)
+                writer[f"SI_SNR_spk{i + 1}"][key] = str(si_snr_score)
                 writer[f"SDR_spk{i + 1}"][key] = str(sdr[i])
                 writer[f"SAR_spk{i + 1}"][key] = str(sar[i])
                 writer[f"SIR_spk{i + 1}"][key] = str(sir[i])
+                # save permutation assigned script file
+                writer[f"wav_spk{i + 1}"][key] = inf_readers[perm[i]].data[key]
 
 
 def get_parser():
@@ -89,7 +104,7 @@ def get_parser():
         "--log_level",
         type=lambda x: x.upper(),
         default="INFO",
-        choices=("INFO", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"),
+        choices=("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"),
         help="The verbose level of logging",
     )
 
@@ -104,10 +119,16 @@ def get_parser():
 
     group = parser.add_argument_group("Input data related")
     group.add_argument(
-        "--ref_scp", type=str, required=True, action="append",
+        "--ref_scp",
+        type=str,
+        required=True,
+        action="append",
     )
     group.add_argument(
-        "--inf_scp", type=str, required=True, action="append",
+        "--inf_scp",
+        type=str,
+        required=True,
+        action="append",
     )
     group.add_argument("--key_file", type=str)
     group.add_argument("--ref_channel", type=int, default=0)

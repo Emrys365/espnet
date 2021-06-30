@@ -1,10 +1,11 @@
+"""Iterable dataset module."""
 import copy
-from distutils.version import LooseVersion
 from io import StringIO
+from pathlib import Path
 from typing import Callable
 from typing import Collection
 from typing import Dict
-from typing import Iterable
+from typing import Iterator
 from typing import Tuple
 from typing import Union
 
@@ -12,20 +13,38 @@ import kaldiio
 import numpy as np
 import soundfile
 import torch
+from torch.utils.data.dataset import IterableDataset
 from typeguard import check_argument_types
 
 from espnet2.train.dataset import ESPnetDataset
 
-if LooseVersion(torch.__version__) >= LooseVersion("1.2"):
-    from torch.utils.data.dataset import IterableDataset
-else:
-    from torch.utils.data.dataset import Dataset as IterableDataset
+
+def load_kaldi(input):
+    retval = kaldiio.load_mat(input)
+    if isinstance(retval, tuple):
+        assert len(retval) == 2, len(retval)
+        if isinstance(retval[0], int) and isinstance(retval[1], np.ndarray):
+            # sound scp case
+            rate, array = retval
+        elif isinstance(retval[1], int) and isinstance(retval[0], np.ndarray):
+            # Extended ark format case
+            array, rate = retval
+        else:
+            raise RuntimeError(f"Unexpected type: {type(retval[0])}, {type(retval[1])}")
+
+        # Multichannel wave fie
+        # array: (NSample, Channel) or (Nsample)
+
+    else:
+        # Normal ark case
+        assert isinstance(retval, np.ndarray), type(retval)
+        array = retval
+    return array
+
 
 DATA_TYPES = {
     "sound": lambda x: soundfile.read(x)[0],
-    # NOTE(kamo): load_ark can load wav file.
-    "pipe_wav": lambda x: kaldiio.load_mat(x)[1].astype(np.float32),
-    "kaldi_ark": lambda x: kaldiio.load_mat(x),
+    "kaldi_ark": load_kaldi,
     "npy": np.load,
     "text_int": lambda x: np.loadtxt(
         StringIO(x), ndmin=1, dtype=np.long, delimiter=" "
@@ -79,6 +98,7 @@ class IterableESPnetDataset(IterableDataset):
         self.debug_info = {}
         non_iterable_list = []
         self.path_name_type_list = []
+
         for path, name, _type in path_name_type_list:
             if name in self.debug_info:
                 raise RuntimeError(f'"{name}" is duplicated for data-key')
@@ -99,6 +119,11 @@ class IterableESPnetDataset(IterableDataset):
         else:
             self.non_iterable_dataset = None
 
+        if Path(Path(path_name_type_list[0][0]).parent, "utt2category").exists():
+            self.apply_utt2category = True
+        else:
+            self.apply_utt2category = False
+
     def has_name(self, name) -> bool:
         return name in self.debug_info
 
@@ -113,7 +138,7 @@ class IterableESPnetDataset(IterableDataset):
         _mes += f"\n  preprocess: {self.preprocess})"
         return _mes
 
-    def __iter__(self) -> Iterable[Tuple[Union[str, int], Dict[str, np.ndarray]]]:
+    def __iter__(self) -> Iterator[Tuple[Union[str, int], Dict[str, np.ndarray]]]:
         if self.key_file is not None:
             uid_iter = (
                 line.rstrip().split(maxsplit=1)[0]
@@ -159,11 +184,11 @@ class IterableESPnetDataset(IterableDataset):
                     keys.append(key)
                     values.append(value)
 
-                for k in keys:
+                for k_idx, k in enumerate(keys):
                     if k != keys[0]:
                         raise RuntimeError(
-                            f"Keys are mismatched. Text files is not sorted or "
-                            f"not having same keys at L{linenum}"
+                            f"Keys are mismatched. Text files (idx={k_idx}) is "
+                            f"not sorted or not having same keys at L{linenum}"
                         )
 
                 # If the key is matched, break the loop

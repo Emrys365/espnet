@@ -1,13 +1,15 @@
+from abc import ABC
+from abc import abstractmethod
 import collections
 import copy
 import functools
 import logging
 import numbers
 import re
+from typing import Any
 from typing import Callable
 from typing import Collection
 from typing import Dict
-from typing import List
 from typing import Mapping
 from typing import Tuple
 from typing import Union
@@ -21,12 +23,13 @@ from torch.utils.data.dataset import Dataset
 from typeguard import check_argument_types
 from typeguard import check_return_type
 
-from espnet2.utils.fileio import load_num_sequence_text
-from espnet2.utils.fileio import NpyScpReader
-from espnet2.utils.fileio import read_2column_text
-from espnet2.utils.fileio import SoundScpReader
-from espnet2.utils.rand_gen_dataset import FloatRandomGenerateDataset
-from espnet2.utils.rand_gen_dataset import IntRandomGenerateDataset
+from espnet2.fileio.npy_scp import NpyScpReader
+from espnet2.fileio.rand_gen_dataset import FloatRandomGenerateDataset
+from espnet2.fileio.rand_gen_dataset import IntRandomGenerateDataset
+from espnet2.fileio.read_text import load_num_sequence_text
+from espnet2.fileio.read_text import read_2column_text
+from espnet2.fileio.rttm import RttmReader
+from espnet2.fileio.sound_scp import SoundScpReader
 from espnet2.utils.sized_dict import SizedDict
 
 
@@ -47,14 +50,39 @@ class AdapterForSoundScpReader(collections.abc.Mapping):
         return iter(self.loader)
 
     def __getitem__(self, key: str) -> np.ndarray:
-        rate, array = self.loader[key]
-        if self.rate is not None and self.rate != rate:
-            raise RuntimeError(f"Sampling rates are mismatched: {self.rate} != {rate}")
-        self.rate = rate
-        # Multichannel wave fie
-        # array: (NSample, Channel) or (Nsample)
-        if self.dtype is not None:
-            array = array.astype(self.dtype)
+        retval = self.loader[key]
+
+        if isinstance(retval, tuple):
+            assert len(retval) == 2, len(retval)
+            if isinstance(retval[0], int) and isinstance(retval[1], np.ndarray):
+                # sound scp case
+                rate, array = retval
+            elif isinstance(retval[1], int) and isinstance(retval[0], np.ndarray):
+                # Extended ark format case
+                array, rate = retval
+            else:
+                raise RuntimeError(
+                    f"Unexpected type: {type(retval[0])}, {type(retval[1])}"
+                )
+
+            if self.rate is not None and self.rate != rate:
+                raise RuntimeError(
+                    f"Sampling rates are mismatched: {self.rate} != {rate}"
+                )
+            self.rate = rate
+            # Multichannel wave fie
+            # array: (NSample, Channel) or (Nsample)
+            if self.dtype is not None:
+                array = array.astype(self.dtype)
+
+        else:
+            # Normal ark case
+            assert isinstance(retval, np.ndarray), type(retval)
+            array = retval
+            if self.dtype is not None:
+                array = array.astype(self.dtype)
+
+        assert isinstance(array, np.ndarray), type(array)
         return array
 
 
@@ -72,20 +100,12 @@ class H5FileWrapper:
     def __iter__(self):
         return iter(self.h5_file)
 
-    def __getitem__(self, key) -> Union[np.ndarray, Dict[str, np.ndarray]]:
+    def __getitem__(self, key) -> np.ndarray:
         value = self.h5_file[key]
-        if isinstance(value, h5py.Group):
-            for k, v in value.items():
-                if not isinstance(v, h5py.Dataset):
-                    raise RuntimeError(
-                        f"Invalid h5-file. Must be 1 or 2 level HDF5: {self.path}"
-                    )
-            return {k: v[()] for k, v in value.items()}
-        else:
-            return value[()]
+        return value[()]
 
 
-def sound_loader(path, float_dtype):
+def sound_loader(path, float_dtype=None):
     # The file is as follows:
     #   utterance_id_A /some/where/a.wav
     #   utterance_id_B /some/where/a.flac
@@ -100,16 +120,8 @@ def sound_loader(path, float_dtype):
     return AdapterForSoundScpReader(loader, float_dtype)
 
 
-def pipe_wav_loader(path, float_dtype):
-    # The file is as follows:
-    #   utterance_id_A cat a.wav |
-    #   utterance_id_B cat b.wav |
-
-    # NOTE(kamo): I don't think this case is practical
-    # because subprocess takes much times due to fork().
-
-    # NOTE(kamo): kaldiio doesn't normalize the signal.
-    loader = kaldiio.load_scp(path)
+def kaldi_loader(path, float_dtype=None, max_cache_fd: int = 0):
+    loader = kaldiio.load_scp(path, max_cache_fd=max_cache_fd)
     return AdapterForSoundScpReader(loader, float_dtype)
 
 
@@ -122,62 +134,6 @@ def rand_int_loader(filepath, loader_type):
     return IntRandomGenerateDataset(filepath, low, high)
 
 
-def imagefolder_loader(filepath, loader_type):
-    # torchvision is not mandatory for espnet
-    import torchvision
-
-    # e.g. imagefolder_256x256
-    # /
-    #   |- horse/
-    #   │    |- 8537.png
-    #   │    |- ...
-    #   |- butterfly/
-    #   │    |- 2857.png
-    #   │    |- ...
-    try:
-        _, image_size = loader_type.split("_")
-        height, width = map(int, image_size.split("x"))
-    except ValueError:
-        raise RuntimeError(f"e.g imagefolder_256x256: but got {loader_type}")
-
-    # folder dataset
-    return torchvision.datasets.ImageFolder(
-        root=filepath,
-        transform=torchvision.transforms.Compose(
-            [
-                torchvision.transforms.Resize([height, width]),
-                torchvision.transforms.ToTensor(),
-            ]
-        ),
-    )
-
-
-def mnist_loader(filepath, loader_type):
-    # torchvision is not mandatory for espnet
-    import torchvision
-
-    # e.g. mnist_train_128x128
-    try:
-        _, train_test, image_size = loader_type.split("_")
-        if train_test not in ["train", "test"]:
-            raise ValueError
-        height, width = map(int, image_size.split("x"))
-    except ValueError:
-        raise RuntimeError(f"e.g mnist_train_256x256: but got {loader_type}")
-
-    return torchvision.datasets.MNIST(
-        root=filepath,
-        train=train_test == "train",
-        download=True,
-        transform=torchvision.transforms.Compose(
-            [
-                torchvision.transforms.Resize([height, width]),
-                torchvision.transforms.ToTensor(),
-            ]
-        ),
-    )
-
-
 DATA_TYPES = {
     "sound": dict(
         func=sound_loader,
@@ -188,19 +144,9 @@ DATA_TYPES = {
         "   utterance_id_b b.wav\n"
         "   ...",
     ),
-    "pipe_wav": dict(
-        func=pipe_wav_loader,
-        kwargs=["float_dtype"],
-        help="Kaldi wav.scp file. If the file doesn't include a pipe, '|' "
-        "for each line, use 'sound' instead."
-        ":\n\n"
-        "   utterance_id_a cat a.wav |\n"
-        "   utterance_id_b cat b.wav |\n"
-        "   ...",
-    ),
     "kaldi_ark": dict(
-        func=kaldiio.load_scp,
-        kwargs=[],
+        func=kaldi_loader,
+        kwargs=["max_cache_fd"],
         help="Kaldi-ark file type."
         "\n\n"
         "   utterance_id_A /some/where/a.ark:123\n"
@@ -270,17 +216,9 @@ DATA_TYPES = {
         func=H5FileWrapper,
         kwargs=[],
         help="A HDF5 file which contains arrays at the first level or the second level."
-        "\n\n"
-        "   1-level HDF5 file example.\n"
         "   >>> f = h5py.File('file.h5')\n"
         "   >>> array1 = f['utterance_id_A']\n"
-        "   >>> array2 = f['utterance_id_B']\n"
-        "\n"
-        "   2-level HDF5 file example.\n"
-        "   >>> f = h5py.File('file.h5')\n"
-        "   >>> values = f['utterance_id_A']\n"
-        "   >>> input_array = values['input']\n"
-        "   >>> target_array = values['target']",
+        "   >>> array2 = f['utterance_id_B']\n",
     ),
     "rand_float": dict(
         func=FloatRandomGenerateDataset,
@@ -304,25 +242,35 @@ DATA_TYPES = {
         "   utterance_id_B 10,4\n"
         "   ...",
     ),
-    "imagefolder_\\d+x\\d+": dict(
-        func=imagefolder_loader,
-        kwargs=["loader_type"],
-        help="e.g. 'imagefolder_32x32'. Using torchvision.datasets.ImageFolder.",
-    ),
-    "mnist_train_\\d+x\\d+": dict(
-        func=mnist_loader,
-        kwargs=["loader_type"],
-        help="e.g. 'mnist_train_32x32'. MNIST train data",
-    ),
-    "mnist_test_\\d+x\\d+": dict(
-        func=mnist_loader,
-        kwargs=["loader_type"],
-        help="e.g. 'mnist_test_32x32'. MNIST test data",
+    "rttm": dict(
+        func=RttmReader,
+        kwargs=[],
+        help="rttm file loader, currently support for speaker diarization"
+        "\n\n"
+        "    SPEAKER file1 1 0 1023 <NA> <NA> spk1 <NA>"
+        "    SPEAKER file1 2 4000 3023 <NA> <NA> spk2 <NA>"
+        "    SPEAKER file1 3 500 4023 <NA> <NA> spk1 <NA>"
+        "    END     file1 <NA> 4023 <NA> <NA> <NA> <NA>"
+        "   ...",
     ),
 }
 
 
-class ESPnetDataset(Dataset):
+class AbsDataset(Dataset, ABC):
+    @abstractmethod
+    def has_name(self, name) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
+    def names(self) -> Tuple[str, ...]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def __getitem__(self, uid) -> Tuple[Any, Dict[str, np.ndarray]]:
+        raise NotImplementedError
+
+
+class ESPnetDataset(AbsDataset):
     """Pytorch Dataset class for ESPNet.
 
     Examples:
@@ -342,6 +290,7 @@ class ESPnetDataset(Dataset):
         float_dtype: str = "float32",
         int_dtype: str = "long",
         max_cache_size: Union[float, int, str] = 0.0,
+        max_cache_fd: int = 0,
     ):
         assert check_argument_types()
         if len(path_name_type_list) == 0:
@@ -354,6 +303,7 @@ class ESPnetDataset(Dataset):
 
         self.float_dtype = float_dtype
         self.int_dtype = int_dtype
+        self.max_cache_fd = max_cache_fd
 
         self.loader_dict = {}
         self.debug_info = {}
@@ -379,18 +329,7 @@ class ESPnetDataset(Dataset):
 
     def _build_loader(
         self, path: str, loader_type: str
-    ) -> Mapping[
-        str,
-        Union[
-            np.ndarray,
-            torch.Tensor,
-            str,
-            numbers.Number,
-            Tuple[Union[np.ndarray, torch.Tensor, str, numbers.Number]],
-            List[Union[np.ndarray, torch.Tensor, str, numbers.Number]],
-            Dict[str, Union[np.ndarray, torch.Tensor, str, numbers.Number]],
-        ],
-    ]:
+    ) -> Mapping[str, Union[np.ndarray, torch.Tensor, str, numbers.Number]]:
         """Helper function to instantiate Loader.
 
         Args:
@@ -409,6 +348,8 @@ class ESPnetDataset(Dataset):
                         kwargs["float_dtype"] = self.float_dtype
                     elif key2 == "int_dtype":
                         kwargs["int_dtype"] = self.int_dtype
+                    elif key2 == "max_cache_fd":
+                        kwargs["max_cache_fd"] = self.max_cache_fd
                     else:
                         raise RuntimeError(f"Not implemented keyword argument: {key2}")
 
@@ -431,6 +372,9 @@ class ESPnetDataset(Dataset):
     def names(self) -> Tuple[str, ...]:
         return tuple(self.loader_dict)
 
+    def __iter__(self):
+        return iter(next(iter(self.loader_dict.values())))
+
     def __repr__(self):
         _mes = self.__class__.__name__
         _mes += "("
@@ -439,16 +383,13 @@ class ESPnetDataset(Dataset):
         _mes += f"\n  preprocess: {self.preprocess})"
         return _mes
 
-    def __len__(self):
-        return len(list(self.loader_dict.values())[0])
-
-    # NOTE(kamo):
-    # Typically pytorch's Dataset.__getitem__ accepts an inger index,
-    # however this Dataset handle a string, which represents a sample-id.
-    def __getitem__(
-        self, uid: Union[str, int]
-    ) -> Tuple[Union[str, int], Dict[str, np.ndarray]]:
+    def __getitem__(self, uid: Union[str, int]) -> Tuple[str, Dict[str, np.ndarray]]:
         assert check_argument_types()
+
+        # Change integer-id to string-id
+        if isinstance(uid, int):
+            d = next(iter(self.loader_dict.values()))
+            uid = list(d)[uid]
 
         if self.cache is not None and uid in self.cache:
             data = self.cache[uid]
@@ -459,25 +400,9 @@ class ESPnetDataset(Dataset):
         for name, loader in self.loader_dict.items():
             try:
                 value = loader[uid]
-                if isinstance(value, dict):
-                    for v in value.values():
-                        if not isinstance(
-                            v, (np.ndarray, torch.Tensor, str, numbers.Number)
-                        ):
-                            raise TypeError(
-                                f"Must be ndarray, torch.Tensor, str or Number: "
-                                f"{type(v)}"
-                            )
-                elif isinstance(value, (tuple, list)):
-                    for v in value:
-                        if not isinstance(
-                            v, (np.ndarray, torch.Tensor, str, numbers.Number)
-                        ):
-                            raise TypeError(
-                                f"Must be ndarray, torch.Tensor, str or Number: "
-                                f"{type(v)}"
-                            )
-                elif not isinstance(
+                if isinstance(value, (list, tuple)):
+                    value = np.array(value)
+                if not isinstance(
                     value, (np.ndarray, torch.Tensor, str, numbers.Number)
                 ):
                     raise TypeError(
@@ -490,43 +415,12 @@ class ESPnetDataset(Dataset):
                 )
                 raise
 
-            if isinstance(value, (np.ndarray, torch.Tensor, str, numbers.Number)):
-                # torch.Tensor is converted to ndarray
-                if isinstance(value, torch.Tensor):
-                    value = value.numpy()
-                elif isinstance(value, numbers.Number):
-                    value = np.array([value])
-                data[name] = value
-
-            # The return value of ESPnet dataset must be a dict of ndarrays,
-            # so we need to parse a container of ndarrays
-            # if dict:
-            #   e.g. "name": {"foo": array, "bar": arrray}
-            #   => "name_foo", "name_bar"
-            elif isinstance(value, dict):
-                for k, v in value.items():
-                    new_key = f"{name}_{k}"
-                    if new_key in self.loader_dict:
-                        raise RuntimeError(f"Use another name: {new_key}")
-                    if isinstance(v, torch.Tensor):
-                        v = v.numpy()
-                    elif isinstance(v, numbers.Number):
-                        v = np.array([v])
-                    data[new_key] = v
-
-            # if tuple or list:
-            #   e.g. "name": [array, array]
-            #   => "name_0", "name_1"
-            elif isinstance(value, (tuple, list)):
-                for i, v in enumerate(value):
-                    new_key = f"{name}_{i}"
-                    if new_key in self.loader_dict:
-                        raise RuntimeError(f"Use another name: {new_key}")
-                    if isinstance(v, torch.Tensor):
-                        v = v.numpy()
-                    elif isinstance(v, numbers.Number):
-                        v = np.array([v])
-                    data[new_key] = v
+            # torch.Tensor is converted to ndarray
+            if isinstance(value, torch.Tensor):
+                value = value.numpy()
+            elif isinstance(value, numbers.Number):
+                value = np.array([value])
+            data[name] = value
 
         # 2. [Option] Apply preprocessing
         #   e.g. espnet2.train.preprocessor:CommonPreprocessor

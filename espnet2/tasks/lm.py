@@ -14,7 +14,8 @@ from typeguard import check_return_type
 
 from espnet2.lm.abs_model import AbsLM
 from espnet2.lm.espnet_model import ESPnetLanguageModel
-from espnet2.lm.seq_rnn import SequentialRNNLM
+from espnet2.lm.seq_rnn_lm import SequentialRNNLM
+from espnet2.lm.transformer_lm import TransformerLM
 from espnet2.tasks.abs_task import AbsTask
 from espnet2.torch_utils.initialize import initialize
 from espnet2.train.class_choices import ClassChoices
@@ -28,7 +29,13 @@ from espnet2.utils.types import str_or_none
 
 
 lm_choices = ClassChoices(
-    "lm", classes=dict(seq_rnn=SequentialRNNLM), type_check=AbsLM, default="seq_rnn"
+    "lm",
+    classes=dict(
+        seq_rnn=SequentialRNNLM,
+        transformer=TransformerLM,
+    ),
+    type_check=AbsLM,
+    default="seq_rnn",
 )
 
 
@@ -84,7 +91,7 @@ class LMTask(AbsTask):
         group.add_argument(
             "--use_preprocessor",
             type=str2bool,
-            default=False,
+            default=True,
             help="Apply preprocessing to data or not",
         )
         group.add_argument(
@@ -105,6 +112,21 @@ class LMTask(AbsTask):
             type=str_or_none,
             help="non_linguistic_symbols file path",
         )
+        parser.add_argument(
+            "--cleaner",
+            type=str_or_none,
+            choices=[None, "tacotron", "jaconv", "vietnamese"],
+            default=None,
+            help="Apply text cleaning",
+        )
+        parser.add_argument(
+            "--g2p",
+            type=str_or_none,
+            choices=[None, "g2p_en", "pyopenjtalk", "pyopenjtalk_kana"],
+            default=None,
+            help="Specify g2p method if --token_type=phn",
+        )
+
         for class_choices in cls.class_choices_list:
             # Append --<name> and --<name>_conf.
             # e.g. --encoder and --encoder_conf
@@ -115,7 +137,7 @@ class LMTask(AbsTask):
 
     @classmethod
     def build_collate_fn(
-        cls, args: argparse.Namespace
+        cls, args: argparse.Namespace, train: bool
     ) -> Callable[
         [Collection[Tuple[str, Dict[str, np.ndarray]]]],
         Tuple[List[str], Dict[str, torch.Tensor]],
@@ -134,6 +156,9 @@ class LMTask(AbsTask):
                 token_type=args.token_type,
                 token_list=args.token_list,
                 bpemodel=args.bpemodel,
+                text_cleaner=args.cleaner,
+                g2p_type=args.g2p,
+                non_linguistic_symbols=args.non_linguistic_symbols,
             )
         else:
             retval = None
@@ -141,12 +166,16 @@ class LMTask(AbsTask):
         return retval
 
     @classmethod
-    def required_data_names(cls, inference: bool = False) -> Tuple[str, ...]:
+    def required_data_names(
+        cls, train: bool = True, inference: bool = False
+    ) -> Tuple[str, ...]:
         retval = ("text",)
         return retval
 
     @classmethod
-    def optional_data_names(cls, inference: bool = False) -> Tuple[str, ...]:
+    def optional_data_names(
+        cls, train: bool = True, inference: bool = False
+    ) -> Tuple[str, ...]:
         retval = ()
         return retval
 
