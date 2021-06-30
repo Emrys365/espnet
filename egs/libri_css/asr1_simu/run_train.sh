@@ -369,8 +369,8 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         --verbose ${verbose} \
         --resume ${resume} \
         --seed ${seed} \
-        --train-json data/${train_set}/data2.json \
-        --valid-json data/${train_dev}/data2.json \
+        --train-json data/${train_set}/data.json \
+        --valid-json data/${train_dev}/data.json \
         --num-spkrs ${num_spkrs} \
         --load-wav-ref False \
         ${n_iter_processes:+--n-iter-processes $n_iter_processes} \
@@ -460,7 +460,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
         feat_recog_dir=data/${rtask}
 
         # split data
-        splitjson.py --parts ${nj} ${feat_recog_dir}/data2.json
+        splitjson.py --parts ${nj} ${feat_recog_dir}/data.json
 
         #### use CPU for decoding
         ngpu=0
@@ -473,7 +473,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             --ngpu ${ngpu} \
             --backend ${backend} \
             --batchsize 0 \
-            --recog-json ${feat_recog_dir}/split${nj}utt/data2.JOB.json \
+            --recog-json ${feat_recog_dir}/split${nj}utt/data.JOB.json \
             --result-label ${expdir}/${decode_dir}/data.JOB.json \
             --model ${expdir}/results/${recog_model} \
             --rnnlm ${lmexpdir}/rnnlm.model.best \

@@ -442,10 +442,9 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             --ngpu ${ngpu} \
             --backend ${backend} \
             --recog-json ${feat_recog_dir}/split${nj}utt/data_enh.JOB.json \
-            --result-label ${expdir}/${decode_dir}/data_enh.JOB.json \
+            --result-label ${expdir}/${decode_dir}/data.JOB.json \
             --model ${expdir}/results/${recog_model} \
             ${seed:+--seed $seed} \
-            ${use_vad_mask:+--use-vad-mask True} \
             ${test_btaps:+--test-btaps $test_btaps} \
             ${test_nmics:+--test-nmics $test_nmics} \
             ${lm_weight:+--lm-weight $lm_weight} \
