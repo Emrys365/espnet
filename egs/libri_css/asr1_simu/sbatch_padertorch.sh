@@ -37,6 +37,7 @@ test_nmics=2 #7
 
 use_transformer=1
 use_vad_mask=
+num_nodes=2
 
 # data scheduling
 multich_epochs=
@@ -44,6 +45,8 @@ multich_epochs=
 # Time-Frequency mask
 #train_opt="${train_opt} --resume /mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/libri_css/asr1_simu/exp/SimLibriCSS-short-train-2spk_singlespkr_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_preprocess_2ch_4gpu/results/snapshot.ep.12"
 #train_opt="${train_opt} --resume /mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/libri_css/asr1_simu/exp/SimLibriCSS-short-train-2spk_singlespkr_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_preprocess_2ch_4gpu/results/snapshot.ep.12"
+#train_opt="${train_opt} --resume /mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/libri_css/asr1_simu/exp/SimLibriCSS-short-train-2spk_singlespkr_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_adam_init_preprocess_2ch_init_asr_lr0.001_4gpu/results/snapshot.ep.4"
+#train_opt="${train_opt} --resume /mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/libri_css/asr1_simu/exp/SimLibriCSS-short-train-2spk_singlespkr_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_adam_init_preprocess_2ch_init_asr_lr0.001_4gpu/results/snapshot.ep.2"
 
 # VAD-like mask
 #train_opt="${train_opt} --resume /mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/libri_css/asr1_simu/exp/SimLibriCSS-short-train-2spk_singlespkr_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_preprocess_2ch_vad_mask_4gpu/results/snapshot.ep.6"
@@ -55,7 +58,7 @@ if [[ "$task" == "0" ]]; then
 elif [[ "$task" == "1" ]]; then
     jobname=revbMVDR
 elif [[ "$task" == "2" ]]; then
-    jobname=libriMVDRatfinit
+    jobname=libriMVDRadamATFinit
     #jobname=rD2c
 elif [[ "$task" == "3" ]]; then
     jobname=r_nara
@@ -100,7 +103,7 @@ fi
 seed=2
 
 # initial learning rate
-lr=
+lr=0.001
 # whether or not to include category info in each minibatch
 #with_category=True
 
@@ -140,6 +143,9 @@ log_file=log/log.reverb.arch1${use_vad_mask:+.vad_mask}.pdtorch.seed${seed}.${us
 #log_file=log/log.reverb.1ch.seed${seed}.${use_transformer:+transformer.}stage${stage}-${stop_stage}
 if [[ $ngpu -gt 1 ]]; then
     log_file=${log_file}_${ngpu}gpu
+fi
+if [[ $num_nodes -gt 1 ]]; then
+    log_file=${log_file}_${num_nodes}node
 fi
 if [[ "$with_category" == "True" ]]; then
     log_file=${log_file}_with_category
@@ -185,7 +191,12 @@ elif [[ "$task" == "b" ]]; then
     fi
 fi
 echo -e "========================\n        stage: ${stage}\n========================\n"
-run_cmd=run_train.sh
+if [[ $num_nodes -gt 1 ]]; then
+    run_cmd=run_train_ddp.sh
+    train_opt="${train_opt} --num-nodes $num_nodes"
+else
+    run_cmd=run_train.sh
+fi
 
 #sbatch_opt="-p cpu --exclude=cqxx-01-00[1-6],cqxx-00-00[1-6],gqxx-01-011"
 sbatch_opt="-p cpu --exclude=cqxx-01-00[1-6],gqxx-01-011,gqxx-01-072 --qos qd7"

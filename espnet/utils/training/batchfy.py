@@ -342,6 +342,8 @@ def make_batchset(
     batch_frames_inout=0,
     iaxis=0,
     oaxis=0,
+    rank=0,
+    world_size=1
 ):
     """Make batch set from json dictionary
 
@@ -501,5 +503,9 @@ def make_batchset(
         batches = batches[:num_batches]
     logging.info("# minibatches: " + str(len(batches)))
 
+    # distributed data set related
+    actual_batch_num = len(batches) // world_size * world_size
+    batches = batches[rank:actual_batch_num:world_size]
+    logging.warning("Worker {}, Number of batcher: {}, this worker uses {}".format(rank, actual_batch_num, len(batches)))
     # batch: List[List[Tuple[str, dict]]]
     return batches

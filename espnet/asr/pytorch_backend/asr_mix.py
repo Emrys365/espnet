@@ -242,6 +242,10 @@ def train(args):
     assert isinstance(model, ASRInterface)
     subsampling_factor = model.subsample[0]
     logging.warning('E2E model:\n{}'.format(model))
+    logging.warning(
+        " Total parameter of the model = "
+        + str(sum(p.numel() for p in model.parameters()))
+    )
 
     # load pretrained model
     if args.init_from_mdl:

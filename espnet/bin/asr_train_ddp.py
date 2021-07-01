@@ -209,76 +209,11 @@ def main(cmd_args):
         from espnet2.train.distributed_utils import resolve_distributed_mode
 
         args.dist_backend = "nccl"
-        args.dist_init_method = None
         args.dist_world_size = None
         args.dist_rank = None
         args.local_rank = None
         args.dist_master_addr = None
         args.dist_master_port = None
-        args.dist_launcher = None
-        # Specify init_method:
-        #   See: https://pytorch.org/docs/stable/distributed.html#initialization
-        if args.num_nodes > 1:
-            if args.master_port is None:
-                # Try "shared-file system initialization" if master_port is not specified
-                # Give random name to avoid reusing previous file
-                init_file = args.init_file_prefix + str(uuid.uuid4())
-                init_file = Path(init_file).absolute()
-                Path(init_file).parent.mkdir(exist_ok=True, parents=True)
-                # init_method = ["--dist_init_method", f"file://{init_file}"]
-                args.dist_init_method = f"file://{init_file}"
-            else:
-                # init_method = ["--dist_master_port", str(args.master_port)]
-                args.dist_master_port = args.master_port
-
-                # This can be omitted if slurm mode
-                # if args.master_addr is not None:
-                    # init_method += ["--dist_master_addr", args.master_addr]
-                args.dist_master_addr = args.master_addr
-
-        cmd = Path(os.environ['train_cmd']).name
-        if args.num_nodes <= 1:
-            if args.ngpu > 1:
-                if args.multiprocessing_distributed:
-                    # NOTE:
-                    #   If multiprocessing_distributed=true,
-                    # -> Distributed mode, which is multi-process and Multi-GPUs.
-                    #    and TCP initializetion is used if single-node case:
-                    #      e.g. init_method="tcp://localhost:20000"
-                    logging.warning(f"single-node with {args.ngpu}gpu on distributed mode")
-                else:
-                    # NOTE:
-                    #   If multiprocessing_distributed=false
-                    # -> "DataParallel" mode, which is single-process
-                    #    and Multi-GPUs with threading.
-                    # See:
-                    # https://discuss.pytorch.org/t/why-torch-nn-parallel-distributeddataparallel-runs-faster-than-torch-nn-dataparallel-on-single-machine-with-multi-gpu/32977/2
-                    logging.warning(f"single-node with {args.ngpu}gpu using DataParallel")
-
-        elif cmd == "run.pl":
-            raise RuntimeError("run.pl doesn't support submitting to the other nodes.")
-
-        elif cmd == "ssh.pl":
-            raise RuntimeError("ssh.pl is not supported now.")
-            # raise RuntimeError("Use --host option instead of ssh.pl")
-
-        elif cmd == "slurm.pl":
-            logging.warning(f"{args.num_nodes}nodes and {args.ngpu}gpu-per-node using srun")
-            args.num_threads = str(max(args.ngpu, 1))
-            args.multiprocessing_distributed = True
-            args.dist_launcher = "slurm"
-
-        else:
-            # This pattern can also works with Slurm.
-            logging.warning(f"{args.num_nodes}nodes and {args.ngpu}gpu-per-node using mpirun")
-            args.num_threads = str(max(args.ngpu, 1))
-            args.multiprocessing_distributed = True
-            args.dist_launcher = "mpi"
-            if args.ngpu == 0:
-                # Gloo supports both GPU and CPU mode.
-                #   See: https://pytorch.org/docs/stable/distributed.html
-                args.dist_backend = "gloo"
-
         # "distributed" is decided using the other command args
         # (other related arguments in `args` will also be modified)
         resolve_distributed_mode(args)

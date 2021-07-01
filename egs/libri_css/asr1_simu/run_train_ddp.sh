@@ -6,6 +6,28 @@
 . ./path.sh || exit 1;
 . ./cmd.sh || exit 1;
 
+min() {
+  local a b
+  a=$1
+  for b in "$@"; do
+      if [ "${b}" -le "${a}" ]; then
+          a="${b}"
+      fi
+  done
+  echo "${a}"
+}
+
+max() {
+  local a b
+  a=$1
+  for b in "$@"; do
+      if [ "${b}" -ge "${a}" ]; then
+          a="${b}"
+      fi
+  done
+  echo "${a}"
+}
+
 # general configuration
 backend=pytorch
 stage=-1       # start from -1 if you need to start from data download
@@ -27,6 +49,8 @@ do_delta=false
 use_padertorch_frontend=
 # use VAD-like masks instead of T-F masks, only works when use_padertorch_frontend is True
 use_vad_mask=
+num_nodes=1
+lr=
 
 # config files
 #preprocess_config=conf/no_preprocess.yaml  # use conf/specaug.yaml for data augmentation
@@ -276,14 +300,6 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         --dict ${dict}
 fi
 
-#train_set=SimLibriUttmix-train
-#train_dev=SimLibriUttmix-dev
-#recog_set="SimLibriUttmix-test"
-
-#train_set=SimLibriCSS-short-train_singlespkr
-#train_dev=SimLibriCSS-short-dev
-#recog_set="SimLibriCSS-short-test"
-
 #train_set=SimLibriCSS-short-train-2spk
 train_set=SimLibriCSS-short-train-2spk_singlespkr
 train_dev=SimLibriCSS-short-dev-2spk
@@ -295,33 +311,21 @@ else
     chs=
 fi
 if [ -z ${tag} ]; then
-    expname=${train_set}_${backend}_$(basename ${train_config%.*})_$(basename ${preprocess_config%.*})${chs}${use_vad_mask:+_vad_mask}${init_frontend:+_init_frontend}${init_asr:+_init_asr}${init_from_mdl:+_init_from_mdl}
+    expname=${train_set}_${backend}_$(basename ${train_config%.*})_$(basename ${preprocess_config%.*})${chs}${use_vad_mask:+_vad_mask}${init_frontend:+_init_frontend}${init_asr:+_init_asr}${init_from_mdl:+_init_from_mdl}${lr:+_lr$lr}
     if ${do_delta}; then
         expname=${expname}_delta
     fi
     if [ $ngpu -gt 1 ]; then
         expname=${expname}_${ngpu}gpu
     fi
+    if [ $num_nodes -gt 1 ]; then
+        expname=${expname}_${num_nodes}node
+    fi
 else
-    expname=${train_set}_${backend}${chs}${use_vad_mask:+_vad_mask}${init_frontend:+_init_frontend}${init_asr:+_init_asr}${init_from_mdl:+_init_from_mdl}_${tag}
+    expname=${train_set}_${backend}${chs}${use_vad_mask:+_vad_mask}${init_frontend:+_init_frontend}${init_asr:+_init_asr}${init_from_mdl:+_init_from_mdl}_${tag}${lr:+_lr$lr}
 fi
 ${use_spa} && spa=true
-#expdir=exp/${expname}_initASR_2ch_double_precision_bs4_maskPostProc_oldwpe #_testDUMP #_resumeEP3 #_bs4
-#expdir=exp/${expname}_initAll_2ch_double_precision_bs4_maskPostProc_oldwpe
-#expdir=exp/${expname}_initAll_2ch_double_precision_bs4_maskPostProc_WPD
 
-#expdir=exp/${expname}_2ch_double_precision_bs4_oldwpe
-#expdir=exp/${expname}_initAll_2ch_double_precision_bs4_oldwpe
-
-#expdir=exp_2spk/${expname}_initAll_2ch_double_precision_bs4_oldwpe
-#expdir=exp_2spk/${expname}_initAll_2ch_double_precision_bs4_oldwpe_freeze_frontend
-#expdir=exp_2spk/${expname}_initAll_2ch_double_precision_bs4_oldwpe_clamp1e-2
-
-#expdir=exp_2spk/${expname}_initASR_2ch_double_precision_bs4_pdtorch_new
-expdir=exp_2spk/${expname}_initASR_2ch_double_precision_bs4_pdtorch_vad_mask
-#expdir=exp_2spk/${expname}_initASR_2ch_double_precision_bs4_oldwpe_vad_mask
-#expdir=exp_2spk/${expname}_2ch_double_precision_bs4_oldwpe_vad_mask
-#expdir=exp_2spk/${expname}_2ch_double_precision_bs4_oldwpe
 if [ -z "$resume" ]; then
     expdir=exp/${expname}
 else
@@ -357,12 +361,22 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         fi
     fi
 
+    jobname="$(basename ${expdir})"
     set -x
-    ${cuda_cmd} --gpu ${ngpu} --mem 100G ${expdir}/train.log \
-        asr_train.py \
+    #${cuda_cmd} --gpu ${ngpu} --num-arrays ${num_nodes} --export ALL --mem 100G ${expdir}/train.log \
+
+    python3 -m espnet2.bin.launch \
+        --cmd "${cuda_cmd} --name ${jobname}" \
+        --log "${expdir}"/train.log \
+        --ngpu "${ngpu}" \
+        --num_nodes "${num_nodes}" \
+        --init_file_prefix "${expdir}"/.dist_init_ \
+        --multiprocessing_distributed true -- \
+        asr_train_ddp.py \
         --config ${train_config} \
         --preprocess-conf ${preprocess_config} \
         --ngpu ${ngpu} \
+        --num-nodes ${num_nodes} \
         --backend ${backend} \
         --outdir ${expdir}/results \
         --tensorboard-dir tensorboard/${expname} \
@@ -373,10 +387,11 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         --verbose ${verbose} \
         --resume ${resume} \
         --seed ${seed} \
-        --train-json data/${train_set}/data.json \
-        --valid-json data/${train_dev}/data.json \
+        --train-json data/${train_set}/data2.json \
+        --valid-json data/${train_dev}/data2.json \
         --num-spkrs ${num_spkrs} \
         --load-wav-ref False \
+        ${lr:+--lr $lr} \
         ${n_iter_processes:+--n-iter-processes $n_iter_processes} \
         ${init_frontend:+--init-frontend $init_frontend} \
         ${init_asr:+--init-asr $init_asr} \
@@ -388,27 +403,8 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         ${use_vad_mask:+--use-vad-mask True} \
         ${spa:+--spa}
 fi
-#        --train-json data/${train_set}/data_${bpemode}${nbpe}.json \
-#        --valid-json data/${train_dev}/data_${bpemode}${nbpe}.json \
 
 #        --save-interval-iters 1 \
-#        --train-json data/${train_set}/data_100.json \
-#        --valid-json data/${train_dev}/data_100.json \
-
-#expdir=libricss_models/MIMO_modular
-#recog_model=combined_MIMO_model.th
-
-#expdir=libricss_models/WPD_MIMO_modular
-#recog_model=combined_WPD_MIMO_model.th
-
-#expdir=exp_2spk/SimLibriCSS-short-train-2spk_pytorch_train_multispkr_preprocess_4gpu_initAll_2ch_double_precision_bs4_oldwpe_freeze_frontend
-#recog_model=snapshot.ep.3
-
-#expdir=exp_2spk/SimLibriCSS-short-train-2spk_pytorch_train_multispkr_preprocess_4gpu_initAll_2ch_double_precision_bs4_oldwpe_clamp1e-2
-#recog_model=snapshot.ep.4
-
-##expdir=exp_2spk/SimLibriCSS-short-train-2spk_pytorch_train_multispkr_padertorch_preprocess_4gpu_initASR_2ch_double_precision_bs4_pdtorch_new
-##recog_model=snapshot.ep.3
 
 if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     echo "stage 5: Decoding"
@@ -447,9 +443,6 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     #test_nmics=7
 
     pids=() # initialize pids
-#     rtask=${train_dev}
-#     rtask=${recog_set}
-#    for jobid in 6; do
     for rtask in ${train_dev} ${recog_set}; do
     (
         prefix=""
@@ -464,12 +457,11 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
         feat_recog_dir=data/${rtask}
 
         # split data
-        splitjson.py --parts ${nj} ${feat_recog_dir}/data.json
+        splitjson.py --parts ${nj} ${feat_recog_dir}/data2.json
 
         #### use CPU for decoding
         ngpu=0
 
-#        ${decode_cmd} --mem 88G JOB=${jobid} ${expdir}/${decode_dir}/log/decode.JOB.log \
         ${decode_cmd} --mem 30G JOB=1:${nj} ${expdir}/${decode_dir}/log/decode.JOB.log \
             asr_recog.py \
             --num-spkrs ${num_spkrs} \
@@ -477,7 +469,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             --ngpu ${ngpu} \
             --backend ${backend} \
             --batchsize 0 \
-            --recog-json ${feat_recog_dir}/split${nj}utt/data.JOB.json \
+            --recog-json ${feat_recog_dir}/split${nj}utt/data2.JOB.json \
             --result-label ${expdir}/${decode_dir}/data.JOB.json \
             --model ${expdir}/results/${recog_model} \
             --rnnlm ${lmexpdir}/rnnlm.model.best \
@@ -485,7 +477,6 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             ${test_btaps:+--test-btaps $test_btaps} \
             ${test_nmics:+--test-nmics $test_nmics}
             # --rnnlm ${lmexpdir}/${lang_model}
-#            --model ${expdir}/results/${recog_model} \
 
         score_sclite.sh --bpe ${nbpe} --bpemodel ${bpemodel}.model --num_spkrs 2  --wer true ${expdir}/${decode_dir} ${dict}
 

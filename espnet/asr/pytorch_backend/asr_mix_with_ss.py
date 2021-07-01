@@ -292,6 +292,10 @@ def train(args):
     assert isinstance(model, ASRInterface)
     subsampling_factor = model.subsample[0]
     logging.warning('E2E model:\n{}'.format(model))
+    logging.warning(
+        " Total parameter of the model = "
+        + str(sum(p.numel() for p in model.parameters()))
+    )
 
     # load pretrained model
     if args.init_from_mdl:
@@ -559,7 +563,7 @@ def train(args):
     if args.init_from_mdl or args.init_asr:
         trainer.extend(resume_require_grad(), trigger=(1, 'epoch'))
 
-    # set 
+    # set
     if args.multich_epochs >= 0:
         t_epochs = list(range(args.multich_epochs, args.epochs))
         assert len(t_epochs) > 0
