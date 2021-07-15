@@ -2204,6 +2204,31 @@ pack.py
       {asr,tts,enh}
     
     optional arguments:
+.. _split_scps.py:
+
+split_scps.py
+~~~~~~~~~~~~~
+
+.. code-block:: none
+
+    usage: split_scps.py [-h]
+                         [--log_level {CRITICAL,ERROR,WARNING,INFO,DEBUG,NOTSET}]
+                         --scps SCPS [SCPS ...] [--names NAMES [NAMES ...]]
+                         [--num_splits NUM_SPLITS] --output_dir OUTPUT_DIR
+    
+    Split scp files
+    
+    optional arguments:
+      --log_level {CRITICAL,ERROR,WARNING,INFO,DEBUG,NOTSET}
+                            The verbose level of logging (default: INFO)
+      --scps SCPS [SCPS ...]
+                            Input texts (default: None)
+      --names NAMES [NAMES ...]
+                            Output names for each files (default: None)
+      --num_splits NUM_SPLITS
+                            Split number (default: None)
+      --output_dir OUTPUT_DIR
+                            Output directory (default: None)
 .. _tokenize_text.py:
 
 tokenize_text.py

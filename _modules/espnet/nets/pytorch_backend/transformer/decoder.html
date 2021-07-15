@@ -256,17 +256,6 @@
     <span class="c1"># https://github.com/espnet/espnet/commit/3d422f6de8d4f03673b89e1caef698745ec749ea#diff-bffb1396f038b317b2b64dd96e6d3563</span>
     <span class="n">rename_state_dict</span><span class="p">(</span><span class="n">prefix</span> <span class="o">+</span> <span class="s2">&quot;output_norm.&quot;</span><span class="p">,</span> <span class="n">prefix</span> <span class="o">+</span> <span class="s2">&quot;after_norm.&quot;</span><span class="p">,</span> <span class="n">state_dict</span><span class="p">)</span>
 
-<span class="k">def</span> <span class="nf">_pre_hook</span><span class="p">(</span>
-    <span class="n">state_dict</span><span class="p">,</span>
-    <span class="n">prefix</span><span class="p">,</span>
-    <span class="n">local_metadata</span><span class="p">,</span>
-    <span class="n">strict</span><span class="p">,</span>
-    <span class="n">missing_keys</span><span class="p">,</span>
-    <span class="n">unexpected_keys</span><span class="p">,</span>
-    <span class="n">error_msgs</span><span class="p">,</span>
-<span class="p">):</span>
-    <span class="c1"># https://github.com/espnet/espnet/commit/3d422f6de8d4f03673b89e1caef698745ec749ea#diff-bffb1396f038b317b2b64dd96e6d3563</span>
-    <span class="n">rename_state_dict</span><span class="p">(</span><span class="n">prefix</span> <span class="o">+</span> <span class="s2">&quot;output_norm.&quot;</span><span class="p">,</span> <span class="n">prefix</span> <span class="o">+</span> <span class="s2">&quot;after_norm.&quot;</span><span class="p">,</span> <span class="n">state_dict</span><span class="p">)</span>
 
 <div class="viewcode-block" id="Decoder"><a class="viewcode-back" href="../../../../../_gen/espnet.nets.html#espnet.nets.pytorch_backend.transformer.decoder.Decoder">[docs]</a><span class="k">class</span> <span class="nc">Decoder</span><span class="p">(</span><span class="n">BatchScorerInterface</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Transfomer decoder module.</span>

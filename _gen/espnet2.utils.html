@@ -130,13 +130,11 @@
 <li class="toctree-l1"><a class="reference internal" href="espnet2.samplers.html">espnet2.samplers package</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">espnet2.utils package</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#espnet2-utils-config-argparse">espnet2.utils.config_argparse</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#espnet2-utils-pack-funcs">espnet2.utils.pack_funcs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#espnet2-utils-griffin-lim">espnet2.utils.griffin_lim</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#espnet2-utils-sized-dict">espnet2.utils.sized_dict</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#espnet2-utils-yaml-no-alias-safe-dump">espnet2.utils.yaml_no_alias_safe_dump</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#espnet2-utils-init">espnet2.utils.__init__</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#espnet2-utils-build-dataclass">espnet2.utils.build_dataclass</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#espnet2-utils-model-summary">espnet2.utils.model_summary</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#espnet2-utils-nested-dict-action">espnet2.utils.nested_dict_action</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#espnet2-utils-get-default-kwargs">espnet2.utils.get_default_kwargs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#espnet2-utils-types">espnet2.utils.types</a></li>
@@ -276,45 +274,8 @@ but this class is lack of some features that it has.</p>
 </dd></dl>
 
 </div>
-<div class="section" id="espnet2-utils-pack-funcs">
-<span id="id2"></span><h2>espnet2.utils.pack_funcs<a class="headerlink" href="#espnet2-utils-pack-funcs" title="Permalink to this headline">¶</a></h2>
-<span class="target" id="module-espnet2.utils.pack_funcs"></span><dl class="function">
-<dt id="espnet2.utils.pack_funcs.default_tarinfo">
-<code class="sig-prename descclassname">espnet2.utils.pack_funcs.</code><code class="sig-name descname">default_tarinfo</code><span class="sig-paren">(</span><em class="sig-param">name</em><span class="sig-paren">)</span> &#x2192; tarfile.TarInfo<a class="reference internal" href="../_modules/espnet2/utils/pack_funcs.html#default_tarinfo"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.pack_funcs.default_tarinfo" title="Permalink to this definition">¶</a></dt>
-<dd><p>Generate TarInfo using system information</p>
-</dd></dl>
-
-<dl class="function">
-<dt id="espnet2.utils.pack_funcs.find_path_and_change_it_recursive">
-<code class="sig-prename descclassname">espnet2.utils.pack_funcs.</code><code class="sig-name descname">find_path_and_change_it_recursive</code><span class="sig-paren">(</span><em class="sig-param">value</em>, <em class="sig-param">src: str</em>, <em class="sig-param">tgt: str</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/espnet2/utils/pack_funcs.html#find_path_and_change_it_recursive"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.pack_funcs.find_path_and_change_it_recursive" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="function">
-<dt id="espnet2.utils.pack_funcs.pack">
-<code class="sig-prename descclassname">espnet2.utils.pack_funcs.</code><code class="sig-name descname">pack</code><span class="sig-paren">(</span><em class="sig-param">files: Dict[str, Union[str, pathlib.Path]], yaml_files: Dict[str, Union[str, pathlib.Path]], outpath: Union[str, pathlib.Path], option: Iterable[Union[str, pathlib.Path]] = (), mode: str = 'w:gz'</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/espnet2/utils/pack_funcs.html#pack"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.pack_funcs.pack" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="function">
-<dt id="espnet2.utils.pack_funcs.unpack">
-<code class="sig-prename descclassname">espnet2.utils.pack_funcs.</code><code class="sig-name descname">unpack</code><span class="sig-paren">(</span><em class="sig-param">input_tarfile: Union[pathlib.Path, str], outpath: Union[pathlib.Path, str]</em><span class="sig-paren">)</span> &#x2192; Dict[str, str]<a class="reference internal" href="../_modules/espnet2/utils/pack_funcs.html#unpack"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.pack_funcs.unpack" title="Permalink to this definition">¶</a></dt>
-<dd><p>Scan all files in the archive file and return as a dict of files.</p>
-<p class="rubric">Examples</p>
-<dl class="simple">
-<dt>tarfile:</dt><dd><p>packed/asr_model_file.pth
-packed/option/some1.file
-packed/option/some2.file</p>
-</dd>
-</dl>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">unpack</span><span class="p">(</span><span class="s2">&quot;tarfile&quot;</span><span class="p">,</span> <span class="s2">&quot;out&quot;</span><span class="p">)</span>
-<span class="go">{&#39;asr_model_file&#39;: &#39;out/packed/asr_model_file.pth&#39;,</span>
-<span class="go"> &#39;option&#39;: [&#39;out/packed/option/some1.file&#39;, &#39;out/packed/option/some2.file&#39;]}</span>
-</pre></div>
-</div>
-</dd></dl>
-
-</div>
 <div class="section" id="espnet2-utils-griffin-lim">
-<span id="id3"></span><h2>espnet2.utils.griffin_lim<a class="headerlink" href="#espnet2-utils-griffin-lim" title="Permalink to this headline">¶</a></h2>
+<span id="id2"></span><h2>espnet2.utils.griffin_lim<a class="headerlink" href="#espnet2-utils-griffin-lim" title="Permalink to this headline">¶</a></h2>
 <span class="target" id="module-espnet2.utils.griffin_lim"></span><p>Griffin-Lim related modules.</p>
 <dl class="class">
 <dt id="espnet2.utils.griffin_lim.Spectrogram2Waveform">
@@ -383,7 +344,7 @@ packed/option/some2.file</p>
 
 </div>
 <div class="section" id="espnet2-utils-sized-dict">
-<span id="id4"></span><h2>espnet2.utils.sized_dict<a class="headerlink" href="#espnet2-utils-sized-dict" title="Permalink to this headline">¶</a></h2>
+<span id="id3"></span><h2>espnet2.utils.sized_dict<a class="headerlink" href="#espnet2-utils-sized-dict" title="Permalink to this headline">¶</a></h2>
 <span class="target" id="module-espnet2.utils.sized_dict"></span><dl class="class">
 <dt id="espnet2.utils.sized_dict.SizedDict">
 <em class="property">class </em><code class="sig-prename descclassname">espnet2.utils.sized_dict.</code><code class="sig-name descname">SizedDict</code><span class="sig-paren">(</span><em class="sig-param">shared: bool = False</em>, <em class="sig-param">data: dict = None</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/espnet2/utils/sized_dict.html#SizedDict"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.sized_dict.SizedDict" title="Permalink to this definition">¶</a></dt>
@@ -399,7 +360,7 @@ packed/option/some2.file</p>
 
 </div>
 <div class="section" id="espnet2-utils-yaml-no-alias-safe-dump">
-<span id="id5"></span><h2>espnet2.utils.yaml_no_alias_safe_dump<a class="headerlink" href="#espnet2-utils-yaml-no-alias-safe-dump" title="Permalink to this headline">¶</a></h2>
+<span id="id4"></span><h2>espnet2.utils.yaml_no_alias_safe_dump<a class="headerlink" href="#espnet2-utils-yaml-no-alias-safe-dump" title="Permalink to this headline">¶</a></h2>
 <span class="target" id="module-espnet2.utils.yaml_no_alias_safe_dump"></span><dl class="class">
 <dt id="espnet2.utils.yaml_no_alias_safe_dump.NoAliasSafeDumper">
 <em class="property">class </em><code class="sig-prename descclassname">espnet2.utils.yaml_no_alias_safe_dump.</code><code class="sig-name descname">NoAliasSafeDumper</code><span class="sig-paren">(</span><em class="sig-param">stream</em>, <em class="sig-param">default_style=None</em>, <em class="sig-param">default_flow_style=False</em>, <em class="sig-param">canonical=None</em>, <em class="sig-param">indent=None</em>, <em class="sig-param">width=None</em>, <em class="sig-param">allow_unicode=None</em>, <em class="sig-param">line_break=None</em>, <em class="sig-param">encoding=None</em>, <em class="sig-param">explicit_start=None</em>, <em class="sig-param">explicit_end=None</em>, <em class="sig-param">version=None</em>, <em class="sig-param">tags=None</em>, <em class="sig-param">sort_keys=True</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/espnet2/utils/yaml_no_alias_safe_dump.html#NoAliasSafeDumper"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.yaml_no_alias_safe_dump.NoAliasSafeDumper" title="Permalink to this definition">¶</a></dt>
@@ -419,10 +380,10 @@ packed/option/some2.file</p>
 
 </div>
 <div class="section" id="espnet2-utils-init">
-<span id="id6"></span><h2>espnet2.utils.__init__<a class="headerlink" href="#espnet2-utils-init" title="Permalink to this headline">¶</a></h2>
+<span id="id5"></span><h2>espnet2.utils.__init__<a class="headerlink" href="#espnet2-utils-init" title="Permalink to this headline">¶</a></h2>
 <span class="target" id="module-espnet2.utils.__init__"></span></div>
 <div class="section" id="espnet2-utils-build-dataclass">
-<span id="id7"></span><h2>espnet2.utils.build_dataclass<a class="headerlink" href="#espnet2-utils-build-dataclass" title="Permalink to this headline">¶</a></h2>
+<span id="id6"></span><h2>espnet2.utils.build_dataclass<a class="headerlink" href="#espnet2-utils-build-dataclass" title="Permalink to this headline">¶</a></h2>
 <span class="target" id="module-espnet2.utils.build_dataclass"></span><dl class="function">
 <dt id="espnet2.utils.build_dataclass.build_dataclass">
 <code class="sig-prename descclassname">espnet2.utils.build_dataclass.</code><code class="sig-name descname">build_dataclass</code><span class="sig-paren">(</span><em class="sig-param">dataclass</em>, <em class="sig-param">args: argparse.Namespace</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/espnet2/utils/build_dataclass.html#build_dataclass"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.build_dataclass.build_dataclass" title="Permalink to this definition">¶</a></dt>
@@ -430,54 +391,8 @@ packed/option/some2.file</p>
 </dd></dl>
 
 </div>
-<div class="section" id="espnet2-utils-model-summary">
-<span id="id8"></span><h2>espnet2.utils.model_summary<a class="headerlink" href="#espnet2-utils-model-summary" title="Permalink to this headline">¶</a></h2>
-<span class="target" id="module-espnet2.utils.model_summary"></span><dl class="function">
-<dt id="espnet2.utils.model_summary.get_human_readable_count">
-<code class="sig-prename descclassname">espnet2.utils.model_summary.</code><code class="sig-name descname">get_human_readable_count</code><span class="sig-paren">(</span><em class="sig-param">number: int</em><span class="sig-paren">)</span> &#x2192; str<a class="reference internal" href="../_modules/espnet2/utils/model_summary.html#get_human_readable_count"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.model_summary.get_human_readable_count" title="Permalink to this definition">¶</a></dt>
-<dd><p>Return human_readable_count</p>
-<p>Originated from:
-<a class="reference external" href="https://github.com/PyTorchLightning/pytorch-lightning/blob/master/pytorch_lightning/core/memory.py">https://github.com/PyTorchLightning/pytorch-lightning/blob/master/pytorch_lightning/core/memory.py</a></p>
-<p>Abbreviates an integer number with K, M, B, T for thousands, millions,
-billions and trillions, respectively.
-.. rubric:: Examples</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">get_human_readable_count</span><span class="p">(</span><span class="mi">123</span><span class="p">)</span>
-<span class="go">&#39;123  &#39;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">get_human_readable_count</span><span class="p">(</span><span class="mi">1234</span><span class="p">)</span>  <span class="c1"># (one thousand)</span>
-<span class="go">&#39;1 K&#39;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">get_human_readable_count</span><span class="p">(</span><span class="mf">2e6</span><span class="p">)</span>   <span class="c1"># (two million)</span>
-<span class="go">&#39;2 M&#39;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">get_human_readable_count</span><span class="p">(</span><span class="mf">3e9</span><span class="p">)</span>   <span class="c1"># (three billion)</span>
-<span class="go">&#39;3 B&#39;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">get_human_readable_count</span><span class="p">(</span><span class="mf">4e12</span><span class="p">)</span>  <span class="c1"># (four trillion)</span>
-<span class="go">&#39;4 T&#39;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">get_human_readable_count</span><span class="p">(</span><span class="mf">5e15</span><span class="p">)</span>  <span class="c1"># (more than trillion)</span>
-<span class="go">&#39;5,000 T&#39;</span>
-</pre></div>
-</div>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><p><strong>number</strong> – a positive integer number</p>
-</dd>
-<dt class="field-even">Returns</dt>
-<dd class="field-even"><p>A string formatted according to the pattern described above.</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="function">
-<dt id="espnet2.utils.model_summary.model_summary">
-<code class="sig-prename descclassname">espnet2.utils.model_summary.</code><code class="sig-name descname">model_summary</code><span class="sig-paren">(</span><em class="sig-param">model: torch.nn.modules.module.Module</em><span class="sig-paren">)</span> &#x2192; str<a class="reference internal" href="../_modules/espnet2/utils/model_summary.html#model_summary"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.model_summary.model_summary" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="function">
-<dt id="espnet2.utils.model_summary.to_bytes">
-<code class="sig-prename descclassname">espnet2.utils.model_summary.</code><code class="sig-name descname">to_bytes</code><span class="sig-paren">(</span><em class="sig-param">dtype</em><span class="sig-paren">)</span> &#x2192; int<a class="reference internal" href="../_modules/espnet2/utils/model_summary.html#to_bytes"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.model_summary.to_bytes" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</div>
 <div class="section" id="espnet2-utils-nested-dict-action">
-<span id="id9"></span><h2>espnet2.utils.nested_dict_action<a class="headerlink" href="#espnet2-utils-nested-dict-action" title="Permalink to this headline">¶</a></h2>
+<span id="id7"></span><h2>espnet2.utils.nested_dict_action<a class="headerlink" href="#espnet2-utils-nested-dict-action" title="Permalink to this headline">¶</a></h2>
 <span class="target" id="module-espnet2.utils.nested_dict_action"></span><dl class="class">
 <dt id="espnet2.utils.nested_dict_action.NestedDictAction">
 <em class="property">class </em><code class="sig-prename descclassname">espnet2.utils.nested_dict_action.</code><code class="sig-name descname">NestedDictAction</code><span class="sig-paren">(</span><em class="sig-param">option_strings</em>, <em class="sig-param">dest</em>, <em class="sig-param">nargs=None</em>, <em class="sig-param">default=None</em>, <em class="sig-param">choices=None</em>, <em class="sig-param">required=False</em>, <em class="sig-param">help=None</em>, <em class="sig-param">metavar=None</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/espnet2/utils/nested_dict_action.html#NestedDictAction"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.nested_dict_action.NestedDictAction" title="Permalink to this definition">¶</a></dt>
@@ -501,7 +416,7 @@ billions and trillions, respectively.
 
 </div>
 <div class="section" id="espnet2-utils-get-default-kwargs">
-<span id="id10"></span><h2>espnet2.utils.get_default_kwargs<a class="headerlink" href="#espnet2-utils-get-default-kwargs" title="Permalink to this headline">¶</a></h2>
+<span id="id8"></span><h2>espnet2.utils.get_default_kwargs<a class="headerlink" href="#espnet2-utils-get-default-kwargs" title="Permalink to this headline">¶</a></h2>
 <span class="target" id="module-espnet2.utils.get_default_kwargs"></span><dl class="class">
 <dt id="espnet2.utils.get_default_kwargs.Invalid">
 <em class="property">class </em><code class="sig-prename descclassname">espnet2.utils.get_default_kwargs.</code><code class="sig-name descname">Invalid</code><a class="reference internal" href="../_modules/espnet2/utils/get_default_kwargs.html#Invalid"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.get_default_kwargs.Invalid" title="Permalink to this definition">¶</a></dt>
@@ -523,7 +438,7 @@ billions and trillions, respectively.
 
 </div>
 <div class="section" id="espnet2-utils-types">
-<span id="id11"></span><h2>espnet2.utils.types<a class="headerlink" href="#espnet2-utils-types" title="Permalink to this headline">¶</a></h2>
+<span id="id9"></span><h2>espnet2.utils.types<a class="headerlink" href="#espnet2-utils-types" title="Permalink to this headline">¶</a></h2>
 <span class="target" id="module-espnet2.utils.types"></span><dl class="function">
 <dt id="espnet2.utils.types.float_or_none">
 <code class="sig-prename descclassname">espnet2.utils.types.</code><code class="sig-name descname">float_or_none</code><span class="sig-paren">(</span><em class="sig-param">value: str</em><span class="sig-paren">)</span> &#x2192; Optional[float]<a class="reference internal" href="../_modules/espnet2/utils/types.html#float_or_none"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#espnet2.utils.types.float_or_none" title="Permalink to this definition">¶</a></dt>

@@ -37,17 +37,6 @@ espnet2.lm.__init__
     :show-inheritance:
 
 
-.. _espnet2.lm.seq_rnn:
-
-espnet2.lm.seq_rnn
-------------------
-
-.. automodule:: espnet2.lm.seq_rnn
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-
 .. _espnet2.lm.espnet_model:
 
 espnet2.lm.espnet_model

@@ -242,7 +242,9 @@
 
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">opt</span> <span class="o">=</span> <span class="n">chainer</span><span class="o">.</span><span class="n">optimizers</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span>
-            <span class="n">alpha</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">lr</span><span class="p">,</span> <span class="n">beta1</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">beta1</span><span class="p">,</span> <span class="n">beta2</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">beta2</span><span class="p">,</span>
+            <span class="n">alpha</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">lr</span><span class="p">,</span>
+            <span class="n">beta1</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">beta1</span><span class="p">,</span>
+            <span class="n">beta2</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">beta2</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="n">opt</span><span class="o">.</span><span class="n">setup</span><span class="p">(</span><span class="n">target</span><span class="p">)</span>
         <span class="n">opt</span><span class="o">.</span><span class="n">add_hook</span><span class="p">(</span><span class="n">WeightDecay</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">weight_decay</span><span class="p">))</span>
@@ -267,7 +269,9 @@
 <span class="sd">            args (argparse.Namespace): parsed command-line args</span>
 
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">opt</span> <span class="o">=</span> <span class="n">chainer</span><span class="o">.</span><span class="n">optimizers</span><span class="o">.</span><span class="n">SGD</span><span class="p">(</span><span class="n">lr</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">lr</span><span class="p">,)</span>
+        <span class="n">opt</span> <span class="o">=</span> <span class="n">chainer</span><span class="o">.</span><span class="n">optimizers</span><span class="o">.</span><span class="n">SGD</span><span class="p">(</span>
+            <span class="n">lr</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">lr</span><span class="p">,</span>
+        <span class="p">)</span>
         <span class="n">opt</span><span class="o">.</span><span class="n">setup</span><span class="p">(</span><span class="n">target</span><span class="p">)</span>
         <span class="n">opt</span><span class="o">.</span><span class="n">add_hook</span><span class="p">(</span><span class="n">WeightDecay</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">weight_decay</span><span class="p">))</span>
         <span class="k">return</span> <span class="n">opt</span></div></div>
@@ -291,7 +295,10 @@
 <span class="sd">            args (argparse.Namespace): parsed command-line args</span>
 
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">opt</span> <span class="o">=</span> <span class="n">chainer</span><span class="o">.</span><span class="n">optimizers</span><span class="o">.</span><span class="n">AdaDelta</span><span class="p">(</span><span class="n">rho</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">rho</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">eps</span><span class="p">,)</span>
+        <span class="n">opt</span> <span class="o">=</span> <span class="n">chainer</span><span class="o">.</span><span class="n">optimizers</span><span class="o">.</span><span class="n">AdaDelta</span><span class="p">(</span>
+            <span class="n">rho</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">rho</span><span class="p">,</span>
+            <span class="n">eps</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">eps</span><span class="p">,</span>
+        <span class="p">)</span>
         <span class="n">opt</span><span class="o">.</span><span class="n">setup</span><span class="p">(</span><span class="n">target</span><span class="p">)</span>
         <span class="n">opt</span><span class="o">.</span><span class="n">add_hook</span><span class="p">(</span><span class="n">WeightDecay</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">weight_decay</span><span class="p">))</span>
         <span class="k">return</span> <span class="n">opt</span></div></div>

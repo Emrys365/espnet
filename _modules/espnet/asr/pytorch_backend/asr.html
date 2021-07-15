@@ -653,11 +653,6 @@
         <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">()))</span>
     <span class="p">)</span>
 
-    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
-        <span class="s2">&quot; Total parameter of the model = &quot;</span>
-        <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">()))</span>
-    <span class="p">)</span>
-
     <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">rnnlm</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">rnnlm_args</span> <span class="o">=</span> <span class="n">get_model_conf</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">rnnlm</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">rnnlm_conf</span><span class="p">)</span>
         <span class="n">rnnlm</span> <span class="o">=</span> <span class="n">lm_pytorch</span><span class="o">.</span><span class="n">ClassifierWithState</span><span class="p">(</span>

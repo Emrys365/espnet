@@ -15,17 +15,6 @@ espnet2.utils.config_argparse
     :show-inheritance:
 
 
-.. _espnet2.utils.pack_funcs:
-
-espnet2.utils.pack_funcs
-------------------------
-
-.. automodule:: espnet2.utils.pack_funcs
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-
 .. _espnet2.utils.griffin_lim:
 
 espnet2.utils.griffin_lim
@@ -76,17 +65,6 @@ espnet2.utils.build_dataclass
 -----------------------------
 
 .. automodule:: espnet2.utils.build_dataclass
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-
-.. _espnet2.utils.model_summary:
-
-espnet2.utils.model_summary
----------------------------
-
-.. automodule:: espnet2.utils.model_summary
     :members:
     :undoc-members:
     :show-inheritance:
