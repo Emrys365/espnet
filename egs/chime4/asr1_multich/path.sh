@@ -15,6 +15,7 @@ else
 fi
 export PATH=$MAIN_ROOT/utils:$MAIN_ROOT/espnet/bin:$PATH
 export PATH=$MAIN_ROOT/tools/PESQ/P862/Software/source:$PATH
+export PYTHONPATH=$PWD/context:$PWD/frontend:$PYTHONPATH
 
 export OMP_NUM_THREADS=1
 

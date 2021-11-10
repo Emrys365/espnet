@@ -55,7 +55,7 @@ class Frontend(nn.Module):
         self.use_wpe = use_wpe
 
         self.use_beamforming_first = use_beamforming_first
-        assert bnmask == 6, bnmask
+        assert bnmask in (3, 6), bnmask
 
         self.use_vad_mask = use_vad_mask
         if not self.use_vad_mask:
@@ -447,15 +447,30 @@ class Frontend(nn.Module):
                 use_beamformer = self.use_beamformer
 
             if masks is not None:
-                assert len(masks) == 6, len(masks)
-                wpe_masks = masks[:2]
-                beamforming_masks = masks[2:]
+                if len(masks) == 6:
+                    # 2-speaker
+                    wpe_masks = masks[:2]
+                    beamforming_masks = masks[2:]
+                elif len(masks) == 3:
+                    # single-speaker
+                    wpe_masks = masks[:1]
+                    beamforming_masks = masks[1:]
+                else:
+                    raise ValueError("Invalid length of masks: %d" % len(masks))
                 mask = masks
             else:
                 data = h.permute(0, 3, 2, 1)
                 mask, _ = self.mask(data.float(), ilens)
-                wpe_masks = mask[:2]
-                beamforming_masks = mask[2:]
+                if len(mask) == 6:
+                    # 2-speaker
+                    wpe_masks = mask[:2]
+                    beamforming_masks = mask[2:]
+                elif len(mask) == 3:
+                    # single-speaker
+                    wpe_masks = mask[:1]
+                    beamforming_masks = mask[1:]
+                else:
+                    raise ValueError("Invalid length of masks: %d" % len(mask))
 
             if self.use_beamforming_first and use_beamformer:
                 # 1. Beamformer
@@ -502,7 +517,9 @@ class Frontend(nn.Module):
                 # 2. Beamformer
                 if use_beamformer:
                     # h: (B, T, C, F) -> h: (B, T, F)
-                    if isinstance(h, list):
+                    if isinstance(h, list) and len(h) == 1:
+                        h, _ = self.beamforming(h[0], ilens, power=powers, irms=beamforming_masks)
+                    elif isinstance(h, list):
                         for i, hspk in enumerate(h):
                             h[i], _ = self.beamforming(hspk, ilens, power=powers[i], irms=beamforming_masks[i::2])
                     else:
@@ -511,7 +528,7 @@ class Frontend(nn.Module):
             mask = [m.transpose(-1, -3) for m in mask]
 
         if isinstance(h, list):
-            h = [hh.float() for hh in h]
+            h = [hh.float() for hh in h] if len(h) > 1 else h[0].float()
         else:
             h = h.float()
         return h, ilens, mask

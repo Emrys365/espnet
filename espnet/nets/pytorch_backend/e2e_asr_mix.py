@@ -67,7 +67,9 @@ class PIT(object):
     def __init__(self, num_spkrs):
         """Initialize PIT module."""
         self.num_spkrs = num_spkrs
-        if self.num_spkrs == 2:
+        if self.num_spkrs == 1:
+            self.perm_choices = [[0]]
+        elif self.num_spkrs == 2:
             self.perm_choices = [[0, 1], [1, 0]]
         elif self.num_spkrs == 3:
             self.perm_choices = [
@@ -93,7 +95,9 @@ class PIT(object):
         :rtype List: len=2
 
         """
-        if self.num_spkrs == 2:
+        if self.num_spkrs == 1:
+            return loss[0], self.perm_choices[0]
+        elif self.num_spkrs == 2:
             score_perms = (
                 torch.stack([loss[0] + loss[3], loss[1] + loss[2]]) / self.num_spkrs
             )
@@ -128,6 +132,10 @@ class PIT(object):
 
         """
         bs = losses.size(0)
+        if losses.size(1) == 1:
+            # single-speaker
+            permutation = torch.zeros(bs, dtype=torch.long, device=losses.device)
+            return torch.mean(losses), permutation
         ret = [self.min_pit_sample(losses[i]) for i in range(bs)]
 
         loss_perm = torch.stack([r[0] for r in ret], dim=0).to(losses.device)  # (B)
