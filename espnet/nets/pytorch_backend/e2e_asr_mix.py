@@ -19,6 +19,7 @@ import editdistance
 import numpy as np
 import six
 import torch
+import torch_complex.functional as FC
 
 from espnet.nets.asr_interface import ASRInterface
 from espnet.nets.e2e_asr_common import get_vgg2l_odim
@@ -165,6 +166,19 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
     def encoder_mix_add_arguments(parser):
         """Add arguments for multi-speaker encoder."""
         group = parser.add_argument_group("E2E encoder setting for multi-speaker")
+        group.add_argument(
+            "--tBPTT",
+            type=bool,
+            default=False,
+            help="Whether to use truncated back-propagation through time (tBPTT) "
+            "for frontend training"
+        )
+        group.add_argument(
+            "--truncate-frames",
+            type=int,
+            default=288,
+            help="Length of the truncated chunk (in frames) with gradient enabled"
+        )
         # asr-mix encoder
         group.add_argument(
             "--spa",
@@ -259,6 +273,9 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         self.loss = None
         self.acc = None
 
+        self.tBPTT = args.tBPTT
+        self.truncate_frames = args.truncate_frames
+
     def init_like_chainer(self):
         """Initialize weight like chainer.
 
@@ -305,6 +322,40 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         for i in six.moves.range(len(self.dec.decoder)):
             set_forget_bias_to_one(self.dec.decoder[i].bias_ih)
 
+    def truncate(self, speech_mix, ilens):
+        if self.truncate_frames <= 0:
+            raise ValueError(
+                f"Invalid data length ({ilens}) or truncate_frames "
+                f"({self.truncate_frames})"
+            )
+        min_length = torch.min(ilens)
+        if min_length < self.truncate_frames:
+            print(
+                f"WARNING: sample is shorter than {self.truncate_frames}, "
+                f"fall back to min sample length ({min_length})",
+                flush=True,
+            )
+            truncate_frames = min_length
+        else:
+            truncate_frames = self.truncate_frames
+        olens = ilens.new_full(ilens.size(), truncate_frames)
+        speech_truncated = speech_mix.new_empty(
+            [speech_mix.size(0), truncate_frames, *speech_mix.shape[2:]]
+        )
+        frame_offsets = ilens.new_zeros(ilens.size())
+        for i, length in enumerate(ilens):
+            if length == truncate_frames:
+                frame_offsets[i] = 0
+                speech_truncated[i] = speech_mix[i, :length]
+            else:
+                assert length > truncate_frames
+                idx = torch.randint(
+                    size=(), low=0, high=length - truncate_frames
+                )
+                frame_offsets[i] = idx
+                speech_truncated[i] = speech_mix[i, idx : idx + truncate_frames]
+        return speech_truncated, olens, truncate_frames, frame_offsets
+
     def forward(self, xs_pad, ilens, ys_pad):
         """E2E forward.
 
@@ -321,7 +372,22 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         """
         # 0. Frontend
         if self.frontend is not None:
-            hs_pad, hlens, mask = self.frontend(to_torch_tensor(xs_pad), ilens)
+            xs_pad = to_torch_tensor(xs_pad)
+            if self.tBPTT:
+                with torch.no_grad():
+                    hs_pad, hlens, mask = self.frontend(xs_pad, ilens)
+                speech_truncated, olens, truncate_frames, frame_offsets = self.truncate(xs_pad, ilens)
+                hs_pad_chunk, hlens_chunk, mask_chunk = self.frontend(speech_truncated, olens)
+                is_list = isinstance(hs_pad, list)
+                if is_list:
+                    hs_pad = FC.stack(hs_pad, dim=2)
+                    hs_pad_chunk = FC.stack(hs_pad_chunk, dim=2)
+                for b in range(xs_pad.shape[0]):
+                    hs_pad[b, frame_offsets[b] : frame_offsets[b] + truncate_frames] = hs_pad_chunk[b]
+                if is_list:
+                    hs_pad = hs_pad.unbind(dim=2)
+            else:
+                hs_pad, hlens, mask = self.frontend(xs_pad, ilens)
             if isinstance(hs_pad, list):
                 hlens_n = [None] * self.num_spkrs
                 for i in range(self.num_spkrs):

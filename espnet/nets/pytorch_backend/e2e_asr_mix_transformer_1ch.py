@@ -22,6 +22,7 @@ import math
 
 import numpy
 import torch
+import torch_complex.functional as FC
 
 from espnet.nets.asr_interface import ASRInterface
 from espnet.nets.ctc_prefix_score import CTCPrefixScore
@@ -129,6 +130,43 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
         self.num_spkrs = args.num_spkrs
         self.pit = PIT(self.num_spkrs)
 
+        self.tBPTT = args.tBPTT
+        self.truncate_frames = args.truncate_frames
+
+    def truncate(self, speech_mix, ilens):
+        if self.truncate_frames <= 0:
+            raise ValueError(
+                f"Invalid data length ({ilens}) or truncate_frames "
+                f"({self.truncate_frames})"
+            )
+        min_length = torch.min(ilens)
+        if min_length < self.truncate_frames:
+            print(
+                f"WARNING: sample is shorter than {self.truncate_frames}, "
+                f"fall back to min sample length ({min_length})",
+                flush=True,
+            )
+            truncate_frames = min_length
+        else:
+            truncate_frames = self.truncate_frames
+        olens = ilens.new_full(ilens.size(), truncate_frames)
+        speech_truncated = speech_mix.new_empty(
+            [speech_mix.size(0), truncate_frames, *speech_mix.shape[2:]]
+        )
+        frame_offsets = ilens.new_zeros(ilens.size())
+        for i, length in enumerate(ilens):
+            if length == truncate_frames:
+                frame_offsets[i] = 0
+                speech_truncated[i] = speech_mix[i, :length]
+            else:
+                assert length > truncate_frames
+                idx = torch.randint(
+                    size=(), low=0, high=length - truncate_frames
+                )
+                frame_offsets[i] = idx
+                speech_truncated[i] = speech_mix[i, idx : idx + truncate_frames]
+        return speech_truncated, olens, truncate_frames, frame_offsets
+
     def forward(self, xs_pad, ilens, ys_pad):
         """E2E forward.
         :param torch.Tensor xs_pad: batch of padded source sequences (B, Tmax, idim)
@@ -146,7 +184,21 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
         if self.frontend is not None:
             xs_pad = to_torch_tensor(xs_pad)
             #logging.warning(xs_pad.dtype)
-            hs_pad, hlens, mask = self.frontend(xs_pad, ilens)
+            if self.tBPTT:
+                with torch.no_grad():
+                    hs_pad, hlens, mask = self.frontend(xs_pad, ilens)
+                speech_truncated, olens, truncate_frames, frame_offsets = self.truncate(xs_pad, ilens)
+                hs_pad_chunk, hlens_chunk, mask_chunk = self.frontend(speech_truncated, olens)
+                is_list = isinstance(hs_pad, list)
+                if is_list:
+                    hs_pad = FC.stack(hs_pad, dim=2)
+                    hs_pad_chunk = FC.stack(hs_pad_chunk, dim=2)
+                for b in range(xs_pad.shape[0]):
+                    hs_pad[b, frame_offsets[b] : frame_offsets[b] + truncate_frames] = hs_pad_chunk[b]
+                if is_list:
+                    hs_pad = hs_pad.unbind(dim=2)
+            else:
+                hs_pad, hlens, mask = self.frontend(xs_pad, ilens)
             if isinstance(hs_pad, list):
                 hlens_n = [None] * self.num_spkrs
                 for i in range(self.num_spkrs):
