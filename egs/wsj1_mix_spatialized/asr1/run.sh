@@ -161,7 +161,7 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     | sort | uniq | grep -v -e '^\s*$' | awk '{print $0 " " NR+1}' >> ${dict}
 
     echo "make json files"
-    for setname in ${train_set} ${train_dev} ${train_test}; do
+    for setname in tr_spatialized_reverb_multich tr_spatialized_anechoic_multich cv_spatialized_reverb_multich cv_spatialized_anechoic_multich tt_spatialized_reverb_multich tt_spatialized_anechoic_multich; do
         local/data2json.sh --cmd "${train_cmd}" --nj 30 --num-spkrs 2 \
             --category "multichannel" \
             --preprocess-conf ${preprocess_config} --filetype sound.hdf5 \
