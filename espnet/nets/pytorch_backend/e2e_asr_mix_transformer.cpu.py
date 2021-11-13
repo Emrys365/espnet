@@ -615,22 +615,21 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
 
         #enc_output = self.encode(hs_pad).unsqueeze(0)
         #enc_output, _ = self.encoder(hs_pad, None)
+        nbest_hyps = []
         # 1. Encoder
         if not isinstance(hs, list):  # single-channel multi-speaker input x
             enc_output, _ = self.encoder(hs, None)
 
-            nbest_hyps = []
             nbest_hyps.append(self.recog(enc_output, recog_args, char_list, rnnlm, use_jit))
-            return nbest_hyps
         else:  # multi-channel multi-speaker input x
             enc_output = [None] * self.num_spkrs
             for i in range(self.num_spkrs):
                 enc_output[i], _ = self.encoder(hs[i], None)
 
-            nbest_hyps = []
             for enc_out in enc_output:
                 nbest_hyps.append(self.recog(enc_out, recog_args, char_list, rnnlm, use_jit))
-            return nbest_hyps
+
+        return nbest_hyps[0] if self.num_spkrs == 1 else nbest_hyps
 
     def enhance(self, feat):
         """Forward only the frontend stage.

@@ -611,7 +611,7 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
 
         if prev:
             self.train()
-        return y
+        return y[0] if self.num_spkrs == 1 else y
 
     def recognize_batch(self, xs, recog_args, char_list, rnnlm=None):
         """E2E beam search.
