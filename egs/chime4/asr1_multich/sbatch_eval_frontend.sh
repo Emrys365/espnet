@@ -5,7 +5,7 @@ stop_stage=5
 
 # testing hyper-parameters
 test_btaps=5
-test_nmics=2
+test_nmics=5
 
 
 #jobname=iMIMOpd
@@ -16,8 +16,8 @@ test_nmics=2
 #jobname=mimoVADatf
 #jobname=mimoATF
 #jobname=mimoPD
-jobname=iMTLmvdr
-#jobname=mimo
+#jobname=iMTLmvdr
+jobname=mimo
 #jobname=mimo_notrick
 #jobname=mimo_diag
 #jobname=mimo_double
@@ -38,62 +38,56 @@ jobname=${jobname}${test_btaps:+${test_btaps}t}${test_nmics:+${test_nmics}ch}
 #############################################
 #          set experiment directory         #
 #############################################
-model_opt=5
+model_opt=3
+
 
 if [[ $model_opt -eq 0 ]]; then
 
 # padertorch-frontend, WPE+MVDR_souden
-expdir=
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/chime4/asr1_multich/exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_preprocess_uttcmvn_2ch_5taps_2021_11_10
 recog_model=model.acc.best
 
 elif [[ $model_opt -eq 1 ]]; then
 
 # padertorch-frontend, WPE+MVDR_atf (2-iter)
-expdir=
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/chime4/asr1_multich/exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_preprocess_uttcmvn_2ch_5taps_2021_11_10
 recog_model=model.acc.best
 
 elif [[ $model_opt -eq 2 ]]; then
 
 # padertorch-frontend, WPE+MVDR_souden, VAD-like masks
-expdir=
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/chime4/asr1_multich/exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_preprocess_uttcmvn_2ch_5taps_vad_mask_2021_11_10
 recog_model=model.acc.best
 
 elif [[ $model_opt -eq 3 ]]; then
 
 # padertorch-frontend, WPE+MVDR_atf (2-iter), VAD-like masks
-expdir=
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/chime4/asr1_multich/exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_preprocess_uttcmvn_2ch_5taps_vad_mask_2021_11_10
 recog_model=model.acc.best
 
-elif [[ $model_opt -eq 4 ]]; then
-
-# padertorch-frontend, WPE+MVDR_souden, trained with CI-SDR
-expdir=
-recog_model=model.loss.best #snapshot.ep.22
-
-
-########### Joint training (loss_enh + loss_asr) ###########
+########### tBPTT ###########
 elif [[ $model_opt -eq 5 ]]; then
 
-# joint padertorch-frontend, WPE+MVDR_souden
-expdir=
+# padertorch-frontend, WPE+MVDR_souden
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/chime4/asr1_multich/exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_tbptt_preprocess_uttcmvn_5taps_2021_11_11
 recog_model=model.acc.best
 
 elif [[ $model_opt -eq 6 ]]; then
 
-# joint padertorch-frontend, WPE+MVDR_atf (2-iter)
-expdir=
+# padertorch-frontend, WPE+MVDR_atf (2-iter)
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/chime4/asr1_multich/exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt_preprocess_uttcmvn_5taps_2021_11_11
 recog_model=model.acc.best
 
 elif [[ $model_opt -eq 7 ]]; then
 
-# joint padertorch-frontend, WPE+MVDR_souden, VAD-like masks
-expdir=
+# padertorch-frontend, WPE+MVDR_souden, VAD-like masks
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/chime4/asr1_multich/exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_tbptt_preprocess_uttcmvn_5taps_vad_mask_2021_11_11
 recog_model=model.acc.best
 
 elif [[ $model_opt -eq 8 ]]; then
 
-# joint padertorch-frontend, WPE+MVDR_atf (2-iter), VAD-like masks
-expdir=
+# padertorch-frontend, WPE+MVDR_atf (2-iter), VAD-like masks
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/chime4/asr1_multich/exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt_preprocess_uttcmvn_5taps_vad_mask_2021_11_11
 recog_model=model.acc.best
 
 else

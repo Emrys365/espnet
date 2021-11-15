@@ -130,8 +130,8 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
         self.num_spkrs = args.num_spkrs
         self.pit = PIT(self.num_spkrs)
 
-        self.tBPTT = args.tBPTT
-        self.truncate_frames = args.truncate_frames
+        self.tBPTT = getattr(args, "tBPTT", False)
+        self.truncate_frames = getattr(args, "truncate_frames", 288)
 
     def truncate(self, speech_mix, ilens):
         if self.truncate_frames <= 0:

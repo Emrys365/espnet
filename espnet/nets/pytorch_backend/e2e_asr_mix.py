@@ -273,8 +273,8 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         self.loss = None
         self.acc = None
 
-        self.tBPTT = args.tBPTT
-        self.truncate_frames = args.truncate_frames
+        self.tBPTT = getattr(args, "tBPTT", False)
+        self.truncate_frames = getattr(args, "truncate_frames", 288)
 
     def init_like_chainer(self):
         """Initialize weight like chainer.

@@ -24,7 +24,7 @@ fbank_fs=16000
 
 # configuration path
 preprocess_config=conf/preprocess.yaml  # use conf/specaug.yaml for data augmentation
-train_config=conf/tuning/train_multispkr_trans_wyz97_padertorch_mvdr.yaml
+train_config=conf/tuning/train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt.yaml
 decode_config=conf/tuning/decode_pytorch_transformer.yaml
 
 # network architecture

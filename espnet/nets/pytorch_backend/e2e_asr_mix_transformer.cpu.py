@@ -163,8 +163,8 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
             self.error_calculator = None
         self.rnnlm = None
 
-        self.tBPTT = args.tBPTT
-        self.truncate_frames = args.truncate_frames
+        self.tBPTT = getattr(args, "tBPTT", False)
+        self.truncate_frames = getattr(args, "truncate_frames", 288)
 
     def reset_parameters(self, args):
         # initialize parameters
