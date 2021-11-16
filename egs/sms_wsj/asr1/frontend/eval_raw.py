@@ -187,6 +187,8 @@ def main(args):
         with torch.no_grad():
             h = to_torch_tensor(xs)
             separated, _, predicted_masks = model.frontend(h, ilens)
+            if model.num_spkrs == 1:
+                separated = [separated]
 
         length = wav_ref.shape[1]
         # (2, T)
