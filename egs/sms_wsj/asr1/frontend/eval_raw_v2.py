@@ -158,7 +158,7 @@ def main(args):
     os.makedirs(args.output_dir, exist_ok=True)
 
     # Perform evaluation
-    compute_metrics = ['si_sdr', 'sdr', 'sir', 'sar', 'stoi', 'pesq']
+    compute_metrics = ['si_sdr', 'sdr', 'sir', 'sar', 'stoi', 'pesq', 'srmr']
     eval_results = {metric: [] for metric in compute_metrics}
     eval_results0 = {metric: [] for metric in compute_metrics}
     # for 1-pass mask

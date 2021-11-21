@@ -63,7 +63,7 @@ bnmask: 3
 bunits: 600
 bprojs: 600
 beamformer-type: wmpdr_souden
-ref-channel: 0
+ref-channel: 3
 # WPE
 use-wpe: True
 use-dnn-mask-for-wpe: True

@@ -63,7 +63,7 @@ bnmask: 3
 bunits: 600
 bprojs: 600
 beamformer-type: wpd
-ref-channel: 0
+ref-channel: 3
 # WPE
 use-wpe: False
 use-dnn-mask-for-wpe: True
