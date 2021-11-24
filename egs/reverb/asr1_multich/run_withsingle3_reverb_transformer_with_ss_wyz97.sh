@@ -24,13 +24,18 @@ fbank_fs=16000
 
 # configuration path
 preprocess_config=conf/preprocess.yaml  # use conf/specaug.yaml for data augmentation
-train_config=conf/tuning/train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt.yaml
+train_config=conf/tuning/train_multispkr_trans_wyz97_padertorch_mvdr.yaml
 lm_config=conf/lm.yaml
 decode_config=conf/tuning/decode_pytorch_transformer.yaml
 
 # network architecture
 num_spkrs=1
 batch_size=
+
+# training related
+bp_enh_loss=
+enh_loss_type=
+enh_loss_weight=
 
 # rnnlm related
 use_wordlm=true     # false means to train/use a character LM
@@ -104,6 +109,7 @@ set -e
 set -u
 set -o pipefail
 
+#train_set=tr_spatialized_reverb_multich_naraWPE_1iter
 train_set=tr_simu_8ch_multich
 train_aux_set=train_si284
 train_dev=dt_multi_8ch_multich
@@ -273,7 +279,7 @@ else
     chs=
 fi
 if [ -z "$resume" ]; then
-    expdir=exp/${expname}${multich_epochs:+_fromE$multich_epochs}_${chs}5taps${use_vad_mask:+_vad_mask}${bf_wpe_tag:+_tag_$bf_wpe_tag}_$(date +"%Y_%m_%d")
+    expdir=exp/${expname}${multich_epochs:+_fromE$multich_epochs}_${chs}5taps${use_vad_mask:+_vad_mask}_enh_loss${bp_enh_loss:+_bp}${bf_wpe_tag:+_tag_$bf_wpe_tag}_$(date +"%Y_%m_%d")
 else
     resume_dir=$(dirname "$resume")
     expdir=${resume_dir%/results}
@@ -333,12 +339,11 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         --minibatches ${N} \
         --verbose ${verbose} \
         --resume ${resume} \
-        --train-json ${datadir}/${train_set}/data.json \
-        --valid-json ${datadir}/${train_dev}/data.json \
+        --train-json ${datadir}/${train_set}/data_enh.json \
+        --valid-json ${datadir}/${train_dev}/data_enh.json \
         --preprocess-conf ${preprocess_config} \
         --num-spkrs ${num_spkrs} \
         --use-WPD-frontend False \
-        --load-wav-ref False \
         ${init_frontend:+--init-frontend $init_frontend} \
         ${init_asr:+--init-asr $init_asr} \
         ${init_from_mdl:+--init-from-mdl $init_from_mdl} \
@@ -346,10 +351,16 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         ${test_nmics:+--test-nmics $test_nmics} \
         ${multich_epochs:+--multich-epochs $multich_epochs} \
         ${use_padertorch_frontend:+--use-padertorch-frontend True} \
+        --model-module 'espnet.nets.pytorch_backend.e2e_asr_mix_transformer_ss:E2E' \
         ${use_vad_mask:+--use-vad-mask True} \
         ${batch_size:+--batch-size $batch_size} \
         ${lr:+--lr $lr} \
         --ctc_type 'builtin' \
+        --mimo-with-ss-loss True \
+        --load-input-lengths True \
+        ${enh_loss_weight:+--enh-loss-weight $enh_loss_weight} \
+        ${enh_loss_type:+--enh-loss-type $enh_loss_type} \
+        ${bp_enh_loss:+--bp-enh-loss True} \
         ${bf_wpe_tag:+--wpe-tag $bf_wpe_tag --beamforming-tag $bf_wpe_tag} \
         ${fbank_fs:+--fbank-fs $fbank_fs}
 fi
@@ -391,7 +402,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
         #fi
 
         # split data
-        splitjson.py --parts ${nj} ${feat_recog_dir}/data.json
+        splitjson.py --parts ${nj} ${feat_recog_dir}/data_enh.json
 
         #### use CPU for decoding
         ngpu=0
@@ -402,11 +413,10 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             --config ${decode_config} \
             --ngpu ${ngpu} \
             --backend ${backend} \
-            --recog-json ${feat_recog_dir}/split${nj}utt/data.JOB.json \
+            --recog-json ${feat_recog_dir}/split${nj}utt/data_enh.JOB.json \
             --result-label ${expdir}/${decode_dir}/data.JOB.json \
             --model ${expdir}/results/${recog_model} \
             ${seed:+--seed $seed} \
-            ${use_vad_mask:+--use-vad-mask True} \
             ${test_btaps:+--test-btaps $test_btaps} \
             ${test_nmics:+--test-nmics $test_nmics} \
             ${lm_weight:+--lm-weight $lm_weight} \
@@ -424,43 +434,6 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     echo "Finished"
     exit 0;
 fi
-
-if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
-    echo "stage 6: Drawing Spectrogram"
-    nj=1
-
-    setname="tt"
-    for rtask in "reverb"; do
-    #for rtask in ${train_dev}; do
-    (
-        feat_recog_dir=data/${setname}_spatialized_${rtask}_2ch  # ${dumpdir}/${rtask}/delta${do_delta}
-        audio_dir=/export/c09/xkc09/asr/wsj_2mix_multi_channel/asr1/data/separated_audio/${setname}/audio2/${rtask}
-        mkdir -p ${audio_dir}
-        mkdir -p ${audio_dir}/../spec_visual_${setname}_${rtask}
-        echo ${expdir}/${recog_model} > ${audio_dir}/readme
-
-        # split data
-        splitjson.py --parts ${nj} ${feat_recog_dir}/data.json
-
-        ${decode_cmd} JOB=1:${nj} ${expdir}/log/draw.JOB.log \
-            asr_draw.py \
-            --num-spkrs ${num_spkrs} \
-            --ngpu ${ngpu} \
-            --backend ${backend} \
-            --recog-json ${feat_recog_dir}/split${nj}utt/data.JOB.json \
-            --model ${expdir}/results/${recog_model}  \
-            --image-dir ${audio_dir}/../spec_visual_${setname}_${rtask} \
-            --enh-wspecifier "ark,scp:${audio_dir},${audio_dir}/audio.scp" \
-            --enh-filetype 'sound' &
-        wait
-
-    ) &
-    done
-    wait
-    echo "Finished"
-fi
-
-expdir=exp_revb/seed1_tr_spatialized_reverb_multich_singlespkr2c_pytorch_train_multispkr512_trans_wyz97_preprocess_init_asr_wpd_ver5_globalcmvn_5taps_2020_05_08
 
 if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
     echo "stage 7: Filtering Training Sampling"

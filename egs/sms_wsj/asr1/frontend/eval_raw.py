@@ -181,8 +181,15 @@ def main(args):
         if wav_ref.ndim == 3:
             wav_ref = wav_ref[..., ref_channel]
 
+        if wav_ref.shape[1] > wav_mix.shape[0]:
+            print("[WARNING] clipping long reference to match the length of input wav", flush=True)
+            wav_ref = wav_ref[:, :wav_mix.shape[0]]
+        elif wav_ref.shape[1] < wav_mix.shape[0]:
+            print("[WARNING] clipping long input wav to match the length of reference", flush=True)
+            wav_mix = wav_mix[:wav_ref.shape[1]]
+
         # (1, T, chs)
-        xs = preproc(sf.read(mixwav)[0][:, :chs])[None, ...]
+        xs = preproc(sf.read(mixwav)[0][:wav_mix.shape[1], :chs])[None, ...]
         ilens = torch.LongTensor([xs.shape[1]])
         with torch.no_grad():
             h = to_torch_tensor(xs)

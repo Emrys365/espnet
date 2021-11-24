@@ -1,0 +1,1 @@
+../../chime4/asr1_multich/cal_srmr.sh

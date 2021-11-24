@@ -192,6 +192,13 @@ def main(args):
         else:
             wav_ref = wav_ref0
 
+        if wav_ref.shape[1] > wav_mix.shape[0]:
+            print("[WARNING] clipping long reference to match the length of input wav", flush=True)
+            wav_ref = wav_ref[:, :wav_mix.shape[0]]
+        elif wav_ref.shape[1] < wav_mix.shape[0]:
+            print("[WARNING] clipping long input wav to match the length of reference", flush=True)
+            wav_mix = wav_mix[:wav_ref.shape[1]]
+
         # (1, T, chs)
         xs = torch.as_tensor(wav_mix0[None, :, :chs], device=args.device, dtype=torch.float32)
         speech_lengths = torch.LongTensor([wav_mix0.shape[0]], device=args.device)
@@ -201,7 +208,7 @@ def main(args):
         if args.use_oracle_mask:
             noisewav = wavs.get("noise", None)
             if noisewav is not None:
-                wav_noise = sf.read(noisewav)[0]
+                wav_noise = sf.read(noisewav)[0][:wav_mix.shape[1]]
                 noise = torch.as_tensor(wav_noise[None, :, :chs], device=args.device, dtype=torch.float32)
                 noise_spec = ComplexTensor(*torch.unbind(stft(noise, speech_lengths)[0], dim=-1))
 
