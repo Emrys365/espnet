@@ -131,14 +131,15 @@ def main(args):
             utt, wavpath = line.split(maxsplit=1)
             dataset.setdefault(utt, {})["mix"] = wavpath
 
-    for spk in range(model.num_spkrs):
-        with open(os.path.join(args.data_dir, f'spk{spk + 1}.scp'), 'r') as f:
-            for line in f:
-                line = line.strip()
-                if len(line) <= 0:
-                    continue
-                utt, wavpath = line.split(maxsplit=1)
-                dataset.setdefault(utt, {})[f"spk{spk + 1}"] = wavpath
+    if os.path.exists(os.path.join(args.data_dir, 'spk1.scp')):
+        for spk in range(model.num_spkrs):
+            with open(os.path.join(args.data_dir, f'spk{spk + 1}.scp'), 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if len(line) <= 0:
+                        continue
+                    utt, wavpath = line.split(maxsplit=1)
+                    dataset.setdefault(utt, {})[f"spk{spk + 1}"] = wavpath
 
     if os.path.exists(os.path.join(args.data_dir, 'noise1.scp')):
         with open(os.path.join(args.data_dir, 'noise1.scp'), 'r') as f:
@@ -167,18 +168,8 @@ def main(args):
         logging.warning('(%d/%d) enhanncing ' + utt, sample_count, total_num)
 
         mixwav = wavs["mix"]
-        spk_wav = [wavs[f"spk{spk + 1}"] for spk in range(model.num_spkrs)]
         wav_mix0, sr = sf.read(mixwav)
         wav_mix = wav_mix0[:, ref_channel]
-        # (2, T)
-        wav_ref0 = np.stack(
-            [sf.read(swav)[0] for swav in spk_wav],
-            axis=0
-        )
-        if wav_ref0.ndim == 3:
-            wav_ref = wav_ref0[..., ref_channel]
-        else:
-            wav_ref = wav_ref0
 
         # (1, T, chs)
         xs = torch.as_tensor(wav_mix0[None, :, :chs], device=args.device, dtype=torch.float32)
@@ -214,7 +205,6 @@ def main(args):
                 eval_results1[k].append(v)
         #######################################
 
-        length = wav_ref.shape[1]
         # (2, T)
         wav_enh = np.stack(
             [

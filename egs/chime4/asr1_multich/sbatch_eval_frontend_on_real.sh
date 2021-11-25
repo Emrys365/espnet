@@ -7,6 +7,8 @@ stop_stage=5
 test_btaps=5
 test_nmics=5
 
+# Whether to store enhanced outputs
+store_output=
 
 #jobname=iMIMOpd
 #jobname=mvdrPD
@@ -109,4 +111,5 @@ sbatch ${sbatch_opt} -J $jobname -o $log_file \
     ${test_btaps:+--test-btaps $test_btaps} \
     ${test_nmics:+--test-nmics $test_nmics} \
     ${expdir:+--expdir $expdir} \
-    ${recog_model:+--recog_model $recog_model}
+    ${recog_model:+--recog_model $recog_model} \
+    ${store_output:+--store_output True}

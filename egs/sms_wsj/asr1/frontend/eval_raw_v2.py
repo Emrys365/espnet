@@ -200,8 +200,8 @@ def main(args):
             wav_mix = wav_mix[:wav_ref.shape[1]]
 
         # (1, T, chs)
-        xs = torch.as_tensor(wav_mix0[None, :, :chs], device=args.device, dtype=torch.float32)
-        speech_lengths = torch.LongTensor([wav_mix0.shape[0]], device=args.device)
+        xs = torch.as_tensor(wav_mix0[None, :wav_mix.shape[0], :chs], device=args.device, dtype=torch.float32)
+        speech_lengths = torch.LongTensor([wav_mix.shape[0]], device=args.device)
         # (1, T', C, F)
         xs = ComplexTensor(*torch.unbind(stft(xs, speech_lengths)[0], dim=-1))
 
@@ -213,9 +213,9 @@ def main(args):
                 noise_spec = ComplexTensor(*torch.unbind(stft(noise, speech_lengths)[0], dim=-1))
 
             if wav_ref0.ndim == 3:
-                ys = torch.as_tensor(wav_ref0[:, None, :, :chs], device=args.device, dtype=torch.float32)
+                ys = torch.as_tensor(wav_ref0[:, None, :wav_mix.shape[0], :chs], device=args.device, dtype=torch.float32)
             else:
-                ys = torch.as_tensor(wav_ref0[:, None, :, None], device=args.device, dtype=torch.float32)
+                ys = torch.as_tensor(wav_ref0[:, None, :wav_mix.shape[0], None], device=args.device, dtype=torch.float32)
 
             ys = [ComplexTensor(*torch.unbind(stft(y, speech_lengths)[0], dim=-1)) for y in ys]
             # [(B, F, C, T')]
@@ -278,10 +278,11 @@ def main(args):
 
 
         ### added for masking based separation
+        refch = 0 if predicted_masks[0].shape[-2] == 1 else ref_channel
         wav_sep2 = np.stack(
             [
                 stft.inverse(
-                    xs[..., ref_channel, :] * m[..., ref_channel, :],
+                    xs[..., ref_channel, :] * m[..., refch, :],
                     speech_lengths
                 )[0].squeeze(0).cpu().numpy()
                 for m in predicted_masks[model.num_spkrs:][::2]

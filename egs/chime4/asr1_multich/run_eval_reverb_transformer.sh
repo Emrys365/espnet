@@ -109,7 +109,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
         #fi
 
         # split data
-        #splitjson.py --parts ${nj} ${feat_recog_dir}/data.json
+        splitjson.py --parts ${nj} ${feat_recog_dir}/data.json
         if [[ $ngpu -eq 0 ]]; then
             #### use CPU for decoding
 

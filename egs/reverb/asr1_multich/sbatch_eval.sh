@@ -22,7 +22,7 @@ seed=1
 lm_weight=1.0
 ctc_weight=0.3
 test_btaps=5
-test_nmics=5
+test_nmics=8
 
 use_vad_mask=
 
@@ -32,7 +32,7 @@ use_vad_mask=
 #jobname=facATF
 #jobname=mimoSSperm
 #jobname=mimoVADatf
-jobname=mimoATFvad
+jobname=mimo
 #jobname=MTLmimoVAD
 #jobname=mimoPD
 #jobname=mimo
@@ -56,7 +56,7 @@ jobname=${jobname}${test_btaps:+${test_btaps}t}${test_nmics:+${test_nmics}ch}
 #############################################
 #          set experiment directory         #
 #############################################
-model_opt=8
+model_opt=5
 
 if [[ $model_opt -eq 0 ]]; then
 
@@ -86,25 +86,25 @@ recog_model=model.acc.best
 elif [[ $model_opt -eq 5 ]]; then
 
 # padertorch-frontend, WPE+MVDR_souden
-expdir=
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/reverb/asr1_multich/exp/seed1_tr_simu_8ch_multich_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_tbptt_preprocess_uttcmvn_5taps_2021_11_24
 recog_model=model.acc.best
 
 elif [[ $model_opt -eq 6 ]]; then
 
 # padertorch-frontend, WPE+MVDR_atf (2-iter)
-expdir=
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/reverb/asr1_multich/exp/seed1_tr_simu_8ch_multich_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt_preprocess_uttcmvn_5taps_2021_11_24
 recog_model=model.acc.best
 
 elif [[ $model_opt -eq 7 ]]; then
 
 # padertorch-frontend, WPE+MVDR_souden, VAD-like masks
-expdir=
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/reverb/asr1_multich/exp/seed1_tr_simu_8ch_multich_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_tbptt_preprocess_uttcmvn_5taps_vad_mask_2021_11_24
 recog_model=model.acc.best
 
 elif [[ $model_opt -eq 8 ]]; then
 
 # padertorch-frontend, WPE+MVDR_atf (2-iter), VAD-like masks
-expdir=
+expdir=/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/reverb/asr1_multich/exp/seed1_tr_simu_8ch_multich_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt_preprocess_uttcmvn_5taps_vad_mask_2021_11_24
 recog_model=model.acc.best
 
 ########### tBPTT + randomly bypass frontend  ###########

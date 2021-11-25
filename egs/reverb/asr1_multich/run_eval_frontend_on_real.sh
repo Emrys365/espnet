@@ -20,6 +20,8 @@ test_nmics= #6
 expdir=
 recog_model=
 
+# Whether to store enhanced outputs
+store_output=
 
 # frontend network architecture
 use_vad_mask=
@@ -58,6 +60,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             python3 frontend/eval_raw_srmr.py \
             --mask-type "PSM^2" \
             --data-dir data/${rtask} \
+            ${store_output:+--output-dir ${expdir}/${output_dir}/enhanced} \
             --model-path ${expdir}/results/${recog_model} \
             ${test_btaps:+--test-btaps $test_btaps} \
             ${test_nmics:+--test-nmics $test_nmics}
