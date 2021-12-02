@@ -12,7 +12,6 @@ trap 'failure ${LINENO} "$BASH_COMMAND"' ERR INT
 
 
 expdirs=(
-    "org"
     "seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_preprocess_uttcmvn_2ch_5taps_2021_11_10"
     "seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_preprocess_uttcmvn_2ch_5taps_vad_mask_2021_11_10"
     "seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt_preprocess_uttcmvn_5taps_2021_11_11"
@@ -24,22 +23,14 @@ expdirs=(
 )
 
 for subset in dt05_simu_isolated_6ch_track et05_simu_isolated_6ch_track; do
-    if [ "$expdir" = "org" ]; then
-        for f in cv_mix_both_reverb_max_16k tt_mix_both_reverb_max_16k; do
-            echo -e "\ndata/${f}"
-            python3 ./cal_srmr.py --ref_channel 0 data/${f}/wav.scp data/${f}/srmr_org_ch0.scp
-        done
+   prefix="/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/espnet_recipe/egs2/chime4/enh1/dump/\(raw\|raw/org\)/${subset}/data/wav/format.[0-9]\+/data_wav/"
+   for expdir in "${expdirs[@]}"; do
+       substr="/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/chime4/asr1_multich/exp/${expdir}/evaluate_frontend/evalSDR_5ch_5btaps_model.acc.best_3iter/${subset}"
+       sed -e "s#${prefix}#${substr}/enhanced/#g" data/${subset}/wav.scp > ${substr}/spk1.scp
+       sed -i -e "s#SIMU\.wav\$#SIMU_0.wav#g" ${substr}/spk1.scp
 
-    else
-        prefix="/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/espnet_recipe/egs2/chime4/enh1/dump/\(raw\|raw/org\)/${subset}/data/wav/format.[0-9]\+/data_wav/"
-        for expdir in "${expdirs[@]}"; do
-            substr="/mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/jsalt2020/espnet-v.0.7.0/egs/chime4/asr1_multich/exp/${expdir}/evaluate_frontend/evalSDR_5ch_5btaps_model.acc.best_3iter/${subset}"
-            sed -e "s#${prefix}#${substr}/enhanced/#g" data/${subset}/wav.scp > ${substr}/spk1.scp
-            sed -i -e "s#SIMU\.wav\$#SIMU_0.wav#g" ${substr}/spk1.scp
-
-            [[ -e "$(head -n 1 "${substr}/spk1.scp" | cut -d' ' -f 2)" ]] || exit 1
-        done
-    fi
+       [[ -e "$(head -n 1 "${substr}/spk1.scp" | cut -d' ' -f 2)" ]] || exit 1
+   done
 done
 
 for subset in dt05_real_isolated_6ch_track et05_real_isolated_6ch_track; do

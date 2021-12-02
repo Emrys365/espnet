@@ -27,5 +27,5 @@ if __name__ == "__main__":
                 wav = wav[:, args.ref_channel]
             score = srmr(wav, fr)
             scores.append(score)
-            out.write(f"{uttid} {score}")
+            out.write(f"{uttid} {score}\n")
     print(f"===== Average SRMR score: {np.nanmean(scores)} =====", flush=True)
