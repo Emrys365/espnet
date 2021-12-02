@@ -43,6 +43,7 @@ from espnet.nets.pytorch_backend.transformer.label_smoothing_loss import LabelSm
 from espnet.nets.pytorch_backend.transformer.mask import subsequent_mask
 from espnet.nets.pytorch_backend.transformer.plot import PlotAttentionReport
 from espnet.nets.scorers.ctc import CTCPrefixScorer
+from espnet.utils import spec_augment
 
 
 class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
@@ -139,6 +140,16 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
             idim = args.n_mels + 3 if getattr(args, "fbank_pitch", None) is not None else args.n_mels
         else:
             self.frontend = None
+
+        self.use_spec_augment = getattr(args, "use_spec_augment", False)
+        self.specaug_W = getattr(args, "specaug_W", 5)
+        self.specaug_F = getattr(args, "specaug_F", 30)
+        self.specaug_T = getattr(args, "specaug_T", 40)
+        self.specaug_F_nmask = getattr(args, "specaug_F_nmask", 2)
+        self.specaug_T_nmask = getattr(args, "specaug_T_nmask", 2)
+        self.specaug_replace_with_zero = getattr(args, "specaug_replace_with_zero", False)
+        if self.use_spec_augment:
+            logging.warning("Applying SpecAug after self.feature_transform")
 
         if args.transformer_attn_dropout_rate is None:
             args.transformer_attn_dropout_rate = args.dropout_rate
@@ -259,6 +270,31 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
                 speech_truncated[i] = speech_mix[i, idx : idx + truncate_frames]
         return speech_truncated, olens, truncate_frames, frame_offsets
 
+    def batch_specaug(self, spec):
+        """Differentiable SpecAug with batch processing
+
+        Args:
+            spec (torch.Tensor): (B, T, dim)
+        Returns:
+            spec_new (torch.Tensor): (B, T, dim)
+        """
+        assert spec.ndim == 3, spec.ndim
+        return torch.stack(
+            [
+                spec_augment.specaug(
+                    spec[b],
+                    W=self.specaug_W,
+                    F=self.specaug_F,
+                    T=self.specaug_T,
+                    num_freq_masks=self.specaug_F_nmask,
+                    num_time_masks=self.specaug_T_nmask,
+                    replace_with_zero=self.specaug_replace_with_zero,
+                )
+                for b in range(spec.size(0))
+            ],
+            dim=0,
+        )
+
     def forward(self, xs_pad, ilens, ys_pad):
         '''E2E forward
 
@@ -301,6 +337,13 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
                 hs_pad, hlens = self.feature_transform(hs_pad.float(), hlens)
         else:
             hs_pad, hlens = xs_pad.float(), ilens
+
+        if self.use_spec_augment:
+            if isinstance(hs_pad, list):
+                for i in range(self.num_spkrs):
+                    hs_pad[i] = self.batch_specaug(hs_pad[i])
+            else:
+                hs_pad = self.batch_specaug(hs_pad)
 
         # 1. forward encoder
         if not isinstance(hs_pad, list):  # single-channel input xs_pad (single-speaker)

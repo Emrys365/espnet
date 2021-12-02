@@ -439,6 +439,10 @@ class Frontend(nn.Module):
                 if self.use_beamformer:
                     choices.append((False, True))
 
+#                if self.nmask == 3:
+#                    # single-speaker
+#                    choices.append((False, False))
+
                 use_wpe, use_beamformer = \
                     choices[numpy.random.randint(len(choices))]
 
@@ -472,7 +476,13 @@ class Frontend(nn.Module):
                 else:
                     raise ValueError("Invalid length of masks: %d" % len(mask))
 
-            if self.use_beamforming_first and use_beamformer:
+            if not use_beamformer and not use_wpe:
+                print(">", end="", flush=True)
+                # randomly select one channel as output for each sample in the minibatch
+                idx = torch.randint(low=0, high=h.shape[2], size=(h.shape[0], 1, 1, 1), device=h.device)
+                h = h.gather(2, idx.expand(-1, h.shape[1], 1, h.shape[3])).squeeze(2)
+
+            elif self.use_beamforming_first and use_beamformer:
                 # 1. Beamformer
                 # h: (B, T, C, F) -> h: (B, T, F)
                 h, _ = self.beamforming(h, ilens, irms=beamforming_masks)

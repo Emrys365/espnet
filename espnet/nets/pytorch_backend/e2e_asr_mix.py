@@ -8,6 +8,7 @@ Copyright 2017 Johns Hopkins University (Shinji Watanabe)
 """
 
 import argparse
+from distutils.util import strtobool
 import logging
 import math
 import os
@@ -41,6 +42,7 @@ from espnet.nets.pytorch_backend.rnn.decoders import decoder_for
 from espnet.nets.pytorch_backend.rnn.encoders import encoder_for as encoder_for_single
 from espnet.nets.pytorch_backend.rnn.encoders import RNNP
 from espnet.nets.pytorch_backend.rnn.encoders import VGG2L
+from espnet.utils import spec_augment
 
 CTC_LOSS_THRESHOLD = 10000
 
@@ -165,10 +167,55 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
     @staticmethod
     def encoder_mix_add_arguments(parser):
         """Add arguments for multi-speaker encoder."""
+        group = parser.add_argument_group("E2E SpecAug related")
+        group.add_argument(
+            "--use-spec-augment",
+            type=strtobool,
+            default=False,
+            help="Whether to use SpecAug after self.feature_transform"
+        )
+        group.add_argument(
+            "--specaug-W",
+            type=int,
+            default=5,
+            help="time warp parameter"
+        )
+        group.add_argument(
+            "--specaug-F",
+            type=int,
+            default=40,
+            help="maximum width of each time mask"
+        )
+        group.add_argument(
+            "--specaug-T",
+            type=int,
+            default=40,
+            help="maximum width of each time mask"
+        )
+        group.add_argument(
+            "--specaug-F-nmask",
+            type=int,
+            default=2,
+            help="number of frequency masks"
+        )
+        group.add_argument(
+            "--specaug-T-nmask",
+            type=int,
+            default=2,
+            help="number of time masks"
+        )
+        group.add_argument(
+            "--specaug-replace-with-zero",
+            type=strtobool,
+            default=False,
+            help="if True, masked parts will be filled with 0; "
+            "if False, filled with mean"
+        )
+
         group = parser.add_argument_group("E2E encoder setting for multi-speaker")
         group.add_argument(
             "--tBPTT",
-            type=bool,
+            type=strtobool,
             default=False,
             help="Whether to use truncated back-propagation through time (tBPTT) "
             "for frontend training"
@@ -232,6 +279,16 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
             idim = args.n_mels
         else:
             self.frontend = None
+
+        self.use_spec_augment = getattr(args, "use_spec_augment", False)
+        self.specaug_W = getattr(args, "specaug_W", 5)
+        self.specaug_F = getattr(args, "specaug_F", 30)
+        self.specaug_T = getattr(args, "specaug_T", 40)
+        self.specaug_F_nmask = getattr(args, "specaug_F_nmask", 2)
+        self.specaug_T_nmask = getattr(args, "specaug_T_nmask", 2)
+        self.specaug_replace_with_zero = getattr(args, "specaug_replace_with_zero", False)
+        if self.use_spec_augment:
+            logging.warning("Applying SpecAug after self.feature_transform")
 
         # encoder
         self.enc = encoder_for(args, idim, self.subsample)
@@ -356,6 +413,31 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
                 speech_truncated[i] = speech_mix[i, idx : idx + truncate_frames]
         return speech_truncated, olens, truncate_frames, frame_offsets
 
+    def batch_specaug(self, spec):
+        """Differentiable SpecAug with batch processing
+
+        Args:
+            spec (torch.Tensor): (B, T, dim)
+        Returns:
+            spec_new (torch.Tensor): (B, T, dim)
+        """
+        assert spec.ndim == 3, spec.ndim
+        return torch.stack(
+            [
+                spec_augment.specaug(
+                    spec[b],
+                    W=self.specaug_W,
+                    F=self.specaug_F,
+                    T=self.specaug_T,
+                    num_freq_masks=self.specaug_F_nmask,
+                    num_time_masks=self.specaug_T_nmask,
+                    replace_with_zero=self.specaug_replace_with_zero,
+                )
+                for b in range(spec.size(0))
+            ],
+            dim=0,
+        )
+
     def forward(self, xs_pad, ilens, ys_pad):
         """E2E forward.
 
@@ -397,6 +479,13 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
                 hs_pad, hlens = self.feature_transform(hs_pad, hlens)
         else:
             hs_pad, hlens = xs_pad, ilens
+
+        if self.use_spec_augment:
+            if isinstance(hs_pad, list):
+                for i in range(self.num_spkrs):
+                    hs_pad[i] = self.batch_specaug(hs_pad[i])
+            else:
+                hs_pad = self.batch_specaug(hs_pad)
 
         # 1. Encoder
         if not isinstance(

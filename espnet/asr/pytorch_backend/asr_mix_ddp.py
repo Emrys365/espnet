@@ -11,6 +11,7 @@ from distutils.version import LooseVersion
 import json
 import logging
 import os
+import re
 
 from chainer.datasets import TransformDataset
 from chainer import training
@@ -169,7 +170,6 @@ def load_pretrained_modules(model_path, target_model, match_keys, freeze_parms=F
     tgt_model_dict = target_model.state_dict()
 
     from collections import OrderedDict
-    import re
     print('initialize: ', match_keys, flush=True)
     filtered_keys = filter(lambda x: re.search(match_keys, x[0]), src_model_dict.items())
     filtered_dict = OrderedDict()
@@ -198,7 +198,6 @@ def init_wpd_model_from_mvdr_wpe(model_path, target_model, freeze_parms=False, m
     tgt_model_dict = target_model.state_dict()
 
     from collections import OrderedDict
-    import re
     filtered_dict = OrderedDict()
     for key, v in src_model_dict.items():
         if 'frontend.beamformer' in key:
@@ -239,6 +238,7 @@ def train(args):
         # See also the following usage of --multiprocessing-distributed:
         # https://github.com/pytorch/examples/blob/master/imagenet/main.py
         num_nodes = get_num_nodes(args.dist_world_size, args.dist_launcher)
+        logging.warning('num_nodes: ', num_nodes)
         if num_nodes == 1:
             args.dist_master_addr = "localhost"
             args.dist_rank = 0
@@ -253,6 +253,7 @@ def train(args):
         # Assume that nodes use same number of GPUs each other
         args.dist_world_size = args.ngpu * num_nodes
         node_rank = get_node_rank(args.dist_rank, args.dist_launcher)
+        logging.warning('node_rank: ', node_rank)
 
         # The following block is copied from:
         # https://github.com/pytorch/pytorch/blob/master/torch/multiprocessing/spawn.py
@@ -291,6 +292,7 @@ def train_main_worker(args):
     distributed_option = build_dataclass(DistributedOption, args)
     # Setting distributed_option.dist_rank, etc.
     distributed_option.init_options()
+    logging.warning(distributed_option)
 
     # Remove all handlers associated with the root logger object
     # before we reset the basicConfig
@@ -414,6 +416,17 @@ def train_main_worker(args):
 #        torch_load(args.init_model_path, model)
         logging.info("Loading pretrained model " + args.init_asr)
 
+    if getattr(args, "freeze_frontend", False):
+        logging.warning("Freeze frontend parameters")
+        for name, param in model.named_parameters():
+            if re.search(r'^frontend\..*', name):
+                param.requires_grad = False
+    if getattr(args, "freeze_asr", False):
+        logging.warning("Freeze ASR parameters")
+        for name, param in model.named_parameters():
+            if re.search(r'(encoder|decoder|ctc)', name):
+                param.requires_grad = False
+
     if args.rnnlm is not None:
         rnnlm_args = get_model_conf(args.rnnlm, args.rnnlm_conf)
         rnnlm = lm_pytorch.ClassifierWithState(
@@ -462,7 +475,7 @@ def train_main_worker(args):
             model.parameters(), lr=args.lr, rho=0.95, eps=args.eps,
             weight_decay=args.weight_decay)
     elif args.opt == 'adam':
-        optimizer = torch.optim.Adam(model.parameters(),
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr,
                                      weight_decay=args.weight_decay)
     elif args.opt == 'noam':
         from espnet.nets.pytorch_backend.transformer.optimizer import get_std_opt
@@ -661,8 +674,8 @@ def train_main_worker(args):
             for parm in trainer.updater.model.parameters():
                 parm.requires_grad = True
         return set_require_grad
-    if args.init_from_mdl or args.init_asr:
-        trainer.extend(resume_require_grad(), trigger=(1, 'epoch'))
+    # if args.init_from_mdl or args.init_asr:
+    #     trainer.extend(resume_require_grad(), trigger=(1, 'epoch'))
 
     # set 
     if args.multich_epochs >= 0:

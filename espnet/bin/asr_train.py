@@ -304,6 +304,12 @@ def get_parser(parser=None, required=True):
         "--accum-grad", default=1, type=int, help="Number of gradient accumuration"
     )
     parser.add_argument(
+        '--lr',
+        default=1.0,
+        type=float,
+        help='Initial learning rate for optimizer'
+    )
+    parser.add_argument(
         "--eps", default=1e-8, type=float, help="Epsilon constant for optimizer"
     )
     parser.add_argument(
@@ -536,6 +542,9 @@ def get_parser(parser=None, required=True):
     parser.add_argument("--fbank-fmax", type=float, default=None, help="")
 
     parser.add_argument("--mimo-with-ss-loss", type=strtobool, default=False, help="whether to train MIMO-Speech with both speech separation and ASR losses")
+
+    parser.add_argument("--freeze-frontend", type=strtobool, default=False, help="whether to freeze the frontend parameters")
+    parser.add_argument("--freeze-asr", type=strtobool, default=False, help="whether to freeze the ASR parameters")
     return parser
 
 

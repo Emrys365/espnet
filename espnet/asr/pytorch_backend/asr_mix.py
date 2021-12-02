@@ -9,6 +9,7 @@ Copyright 2017 Johns Hopkins University (Shinji Watanabe)
 import json
 import logging
 import os
+import re
 
 from chainer.datasets import TransformDataset
 from chainer import training
@@ -151,7 +152,6 @@ def load_pretrained_modules(model_path, target_model, match_keys, freeze_parms=F
     tgt_model_dict = target_model.state_dict()
 
     from collections import OrderedDict
-    import re
     print('initialize: ', match_keys, flush=True)
     filtered_keys = filter(lambda x: re.search(match_keys, x[0]), src_model_dict.items())
     filtered_dict = OrderedDict()
@@ -177,7 +177,6 @@ def init_wpd_model_from_mvdr_wpe(model_path, target_model, freeze_parms=False):
     tgt_model_dict = target_model.state_dict()
 
     from collections import OrderedDict
-    import re
     filtered_dict = OrderedDict()
     for key, v in src_model_dict.items():
         if 'frontend.beamformer' in key:
@@ -278,6 +277,17 @@ def train(args):
 #        torch_load(args.init_model_path, model)
         logging.info("Loading pretrained model " + args.init_asr)
 
+    if getattr(args, "freeze_frontend", False):
+        logging.warning("Freeze frontend parameters")
+        for name, param in model.named_parameters():
+            if re.search(r'^frontend\..*', name):
+                param.requires_grad = False
+    if getattr(args, "freeze_asr", False):
+        logging.warning("Freeze ASR parameters")
+        for name, param in model.named_parameters():
+            if re.search(r'(encoder|decoder|ctc)', name):
+                param.requires_grad = False
+
     if args.rnnlm is not None:
         rnnlm_args = get_model_conf(args.rnnlm, args.rnnlm_conf)
         rnnlm = lm_pytorch.ClassifierWithState(
@@ -322,7 +332,7 @@ def train(args):
             model.parameters(), lr=args.lr, rho=0.95, eps=args.eps,
             weight_decay=args.weight_decay)
     elif args.opt == 'adam':
-        optimizer = torch.optim.Adam(model.parameters(),
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr,
                                      weight_decay=args.weight_decay)
     elif args.opt == 'noam':
         from espnet.nets.pytorch_backend.transformer.optimizer import get_std_opt
