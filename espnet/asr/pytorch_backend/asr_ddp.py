@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import os
+import re
 import sys
 
 from chainer import reporter as reporter_module
@@ -402,6 +403,56 @@ class CustomConverterMulEnc(object):
         return xs_list_pad, ilens_list, ys_pad
 
 
+def load_pretrained_modules(model_path, target_model, match_keys, freeze_parms=False):
+    src_model_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+    tgt_model_dict = target_model.state_dict()
+
+    from collections import OrderedDict
+    print('initialize: ', match_keys, flush=True)
+    filtered_keys = filter(lambda x: re.search(match_keys, x[0]), src_model_dict.items())
+    filtered_dict = OrderedDict()
+    for key, v in filtered_keys:
+        filtered_dict[key] = v
+
+    tgt_model_dict.update(filtered_dict)
+    target_model.load_state_dict(tgt_model_dict)
+
+    if freeze_parms:
+        for name, param in target_model.named_parameters():
+            if name in filtered_dict:
+                param.requires_grad = False
+                print(f'{name}: freezed', flush=True)
+            else:
+                print(f'{name}: requires_grad={param.requires_grad}', flush=True)
+
+    return target_model
+
+
+def init_wpd_model_from_mvdr_wpe(model_path, target_model, freeze_parms=False):
+    src_model_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+    tgt_model_dict = target_model.state_dict()
+
+    from collections import OrderedDict
+    filtered_dict = OrderedDict()
+    for key, v in src_model_dict.items():
+        if 'frontend.beamformer' in key:
+            key2 = re.sub(r'frontend.beamformer', 'frontend', key)
+            if key2 in tgt_model_dict:
+                filtered_dict[key2] = v
+        elif key in tgt_model_dict:
+            filtered_dict[key] = v
+
+    tgt_model_dict.update(filtered_dict)
+    target_model.load_state_dict(tgt_model_dict)
+
+    if freeze_parms:
+        for name, param in target_model.named_parameters():
+            if name in filtered_dict and re.search(r'(encoder|decoder|ctc)', name):
+                    param.requires_grad = False
+
+    return target_model
+
+
 def train(args):
     """Train with the given args.
 
@@ -453,6 +504,48 @@ def train(args):
         " Total parameter of the model = "
         + str(sum(p.numel() for p in model.parameters()))
     )
+
+    # load pretrained model
+    if getattr(args, "init_from_mdl", ""):
+        init_wpd_model_from_mvdr_wpe(args.init_from_mdl, model, freeze_parms=True)
+        logging.info("Loading pretrained model " + args.init_from_mdl)
+
+    elif getattr(args, "init_frontend", "") and getattr(args, "init_asr", ""):
+        match_keys = r'^frontend\..*' #r'\.enc\..*' # r'^(?!.*enc_sd).*$'
+        #load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=True)
+        load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=False)
+        match_keys = r'(encoder|decoder|ctc)'
+        #match_keys = r'^(?!.*frontend).*'
+#        load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=True)
+        load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=False)
+#        torch_load(args.init_model_path, model)
+        logging.info("Loading pretrained model " + args.init_frontend + " and " + args.init_asr)
+
+    elif getattr(args, "init_frontend", ""):
+        match_keys = r'^frontend\..*' #r'\.enc\..*' # r'^(?!.*enc_sd).*$'
+        load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=False)
+#        torch_load(args.init_model_path, model)
+        logging.info("Loading pretrained model " + args.init_frontend)
+
+    elif getattr(args, "init_asr", ""):
+        #match_keys = r'^(?!.*frontend).*' #r'\.enc\..*' # r'^(?!.*enc_sd).*$'
+        #load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=False)
+        match_keys = r'(encoder|decoder|ctc)'
+        #load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=True)
+        load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=False)
+#        torch_load(args.init_model_path, model)
+        logging.info("Loading pretrained model " + args.init_asr)
+
+    if getattr(args, "freeze_frontend", False):
+        logging.warning("Freeze frontend parameters")
+        for name, param in model.named_parameters():
+            if re.search(r'^frontend\..*', name):
+                param.requires_grad = False
+    if getattr(args, "freeze_asr", False):
+        logging.warning("Freeze ASR parameters")
+        for name, param in model.named_parameters():
+            if re.search(r'(encoder|decoder|ctc)', name):
+                param.requires_grad = False
 
     if args.rnnlm is not None:
         rnnlm_args = get_model_conf(args.rnnlm, args.rnnlm_conf)

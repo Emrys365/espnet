@@ -248,7 +248,9 @@ def solve_interpolation(train_points, train_values, order, regularization_weight
     rhs = torch.cat((f, rhs_zeros), 1)  # [b, n + d + 1, k]
 
     # Then, solve the linear system and unpack the results.
-    X, LU = torch.gesv(rhs, lhs)
+    # X, LU = torch.gesv(rhs, lhs)  ## (wyz) torch.gesv is deprecated in favour of torch.solve()
+    X, LU = torch.solve(rhs, lhs)
+
     w = X[:, :n, :]
     v = X[:, n:, :]
 
@@ -459,7 +461,9 @@ def interpolate_bilinear(
         # alpha has the same type as the grid, as we will directly use alpha
         # when taking linear combinations of pixel values from the image.
 
-        alpha = torch.tensor((queries - floor), dtype=grid_type, device=grid_device)
+        ## (wyz) commented to avoid UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
+        # alpha = torch.tensor((queries - floor), dtype=grid_type, device=grid_device)
+        alpha = (queries - floor).to(dtype=grid_type, device=grid_device)
         min_alpha = torch.tensor(0.0, dtype=grid_type, device=grid_device)
         max_alpha = torch.tensor(1.0, dtype=grid_type, device=grid_device)
         alpha = torch.min(torch.max(min_alpha, alpha), max_alpha)

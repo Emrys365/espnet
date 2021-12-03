@@ -24,6 +24,8 @@ from espnet.bin.asr_train import get_parser as get_parser_ori
 from espnet.utils.cli_utils import strtobool
 from espnet.utils.training.batchfy import BATCH_COUNT_CHOICES
 
+from espnet2.utils.types import str_or_none
+
 is_torch_1_2_plus = LooseVersion(torch.__version__) >= LooseVersion("1.2")
 
 
@@ -41,36 +43,28 @@ def get_parser(parser=None, required=True):
     # distributed data parallel config (for single-speaker case)
     parser.add_argument('--rank', default=0, type=int, help='rank of worker')
     parser.add_argument('--world-size', default=1, type=int, help='number of workers')
+
     # distributed data parallel config (for multi-speaker case)
     parser.add_argument(
-        "--multiprocessing-distributed",
+        "--multiprocessing_distributed",
         type=strtobool,
         default=True,
         help="Distributed method is used when single-node mode.",
     )
     parser.add_argument(
-        "--master-port",
-        type=int,
+        "--dist_launcher",
         default=None,
-        help="Specify the port number of master"
-        "Master is a host machine has RANK0 process.",
+        type=str_or_none,
+        choices=["slurm", "mpi", None],
+        help="The launcher type for distributed training",
     )
     parser.add_argument(
-        "--master-addr",
+        "--dist_init_method",
         type=str,
-        default=None,
-        help="Specify the address s of master. "
-        "Master is a host machine has RANK0 process.",
+        default="env://",
+        help='if init_method="env://", env values of "MASTER_PORT", "MASTER_ADDR", '
+        '"WORLD_SIZE", and "RANK" are referred.',
     )
-    parser.add_argument(
-        "--init-file-prefix",
-        type=str,
-        default=".dist_init_",
-        help="The file name prefix for init_file, which is used for "
-        "'Shared-file system initialization'. "
-        "This option is used when --port is not specified",
-    )
-    parser.add_argument("--num-nodes", type=int, default=1, help="The number of nodes")
     # --ngpu means the number of GPUs per node in this mode
     return parser
 
