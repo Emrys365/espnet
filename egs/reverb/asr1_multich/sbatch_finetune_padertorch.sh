@@ -36,7 +36,7 @@ use_transformer=1
 joint_training=
 use_vad_mask=
 bf_wpe_tag=
-batch_size=6
+batch_size=4
 
 freeze_frontend=true
 freeze_asr=false
@@ -122,13 +122,13 @@ lr=
 if [[ "$task" == "2" ]]; then
 #-----------------------------------------------------------------------
     #===== padertorch-frontend, WPE+MVDR_souden =====
-    expname=exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_tbptt_preprocess_uttcmvn_5taps_2021_11_11
+    expname=exp/seed1_tr_simu_8ch_multich_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_tbptt_preprocess_uttcmvn_5taps_2021_11_24/results/snapshot.ep.60
     #===== padertorch-frontend, WPE+MVDR_atf (2-iter) =====
-    #expname=exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt_preprocess_uttcmvn_5taps_2021_11_11
+    #expname=exp/seed1_tr_simu_8ch_multich_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt_preprocess_uttcmvn_5taps_2021_11_24/results/snapshot.ep.80
     #===== padertorch-frontend, WPE+MVDR_souden, VAD-like masks =====
-    #expname=exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_tbptt_preprocess_uttcmvn_5taps_vad_mask_2021_11_11
+    #expname=exp/seed1_tr_simu_8ch_multich_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_tbptt_preprocess_uttcmvn_5taps_vad_mask_2021_11_24/results/snapshot.ep.78
     #===== padertorch-frontend, WPE+MVDR_atf (2-iter), VAD-like masks =====
-    #expname=exp/seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt_preprocess_uttcmvn_5taps_vad_mask_2021_11_11
+    #expname=exp/seed1_tr_simu_8ch_multich_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt_preprocess_uttcmvn_5taps_vad_mask_2021_11_24/results/snapshot.ep.55
 
     init_asr="${expname}/results/model.acc.best"
     init_frontend="${expname}/results/model.acc.best"
@@ -144,7 +144,9 @@ else
     init_from_mdl=
 fi
 
-#train_opt="${train_opt} --resume /mnt/lustre/sjtu/users/wyz97/work_dir/wyz97/espnet-v0.5.3/multi-channel/wsj-mix-spatialized/exp_revb/tr_spatialized_reverb_multich_singlespkr_pytorch_train_multispkr_wyz97_preprocess_arch2/results/snapshot.ep.5"
+init_asr=
+init_frontend=
+#train_opt="${train_opt} --resume exp_finetune/random_bypass_frontend_with_specAug_refch5_seed1_tr05_multi_isolated_6ch_track_singlespkr2c_pytorch_train_multispkr_trans_wyz97_finetune_padertorch_mvdr_atf_tbptt_preprocess_init_frontend_init_asr_uttcmvn_5taps_vad_mask_2021_12_03/results/snapshot.ep.68"
 
 #log_file=log/log.reverb.finetune.mvdr_wpe.${use_transformer:+_transformer.}stage${stage}-${stop#_stage}
 #log_file=log/log.reverb.finetune.mvdr.${use_transformer:+_transformer.}stage${stage}-${stop_stage}

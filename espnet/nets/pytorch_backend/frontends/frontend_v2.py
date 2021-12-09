@@ -30,6 +30,7 @@ class Frontend(nn.Module):
     def __init__(self,
                  idim: int,
                  use_vad_mask: bool = False,
+                 randomly_bypass_frontend: bool = False,
                  # WPE options
                  use_wpe: bool = False,
                  taps: int = 5,
@@ -64,6 +65,10 @@ class Frontend(nn.Module):
         else:
             from espnet.nets.pytorch_backend.frontends.mask_estimator_vad import MaskEstimator
             logging.warning('Using VAD-like masks (same value for all frequencies in each frame)')
+
+        self.randomly_bypass_frontend = randomly_bypass_frontend
+        if randomly_bypass_frontend:
+            logging.warning('Randomly bypassing the frontend for single-speaker data')
 
         self.mask = MaskEstimator(
             idim, btype, blayers, bunits, bprojs, bdropout_rate, nmask=bnmask
@@ -439,9 +444,9 @@ class Frontend(nn.Module):
                 if self.use_beamformer:
                     choices.append((False, True))
 
-#                if self.nmask == 3:
-#                    # single-speaker
-#                    choices.append((False, False))
+                if getattr(self, "randomly_bypass_frontend", False) and self.nmask == 3:
+                    # single-speaker
+                    choices.append((False, False))
 
                 use_wpe, use_beamformer = \
                     choices[numpy.random.randint(len(choices))]
@@ -548,6 +553,7 @@ def frontend_for(args, idim):
     return Frontend(
         idim=idim,
         use_vad_mask=getattr(args, "use_vad_mask", False),
+        randomly_bypass_frontend=getattr(args, "randomly_bypass_frontend", False),
         # WPE options
         use_wpe=args.use_wpe,
         taps=args.wpe_taps,

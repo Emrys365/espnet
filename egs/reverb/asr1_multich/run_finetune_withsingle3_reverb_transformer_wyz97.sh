@@ -24,7 +24,8 @@ fbank_fs=16000
 
 # configuration path
 preprocess_config=conf/preprocess.yaml  # use conf/specaug.yaml for data augmentation
-train_config=conf/tuning/train_multispkr_trans_wyz97_padertorch_mvdr_tbptt.yaml
+train_config=conf/tuning/train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt.yaml
+lm_config=conf/lm.yaml
 decode_config=conf/tuning/decode_pytorch_transformer.yaml
 
 # finetune related
@@ -60,6 +61,14 @@ ctc_weight=0.3
 recog_model=model.acc.best # set a model to be used for decoding: 'model.acc.best' or 'model.loss.best'
 #recog_model=snapshot.ep.13
 
+# enhanced speech option
+fs=16000
+
+# Dereverberation Measures
+compute_se=true # flag for turing on computation of dereverberation measures
+enable_pesq=true # please make sure that you or your institution have the license to report PESQ before turning on this flag
+nch_se=8
+
 #initialization
 init_asr=
 init_frontend=
@@ -70,9 +79,11 @@ test_btaps= #3
 test_nmics= #6
 
 # data
-chime4_data=/export/corpora4/CHiME4/CHiME3 # JHU setup
+reverb=/export/corpora5/REVERB_2014/REVERB    # JHU setup
+wsjcam0=/export/corpora3/LDC/LDC95S24/wsjcam0 # JHU setup
 wsj0=/export/corpora5/LDC/LDC93S6B            # JHU setup
 wsj1=/export/corpora5/LDC/LDC94S13B           # JHU setup
+wavdir=${PWD}/wav # place to store WAV files
 
 # frontend network architecture
 use_padertorch_frontend=
@@ -98,91 +109,54 @@ set -e
 set -u
 set -o pipefail
 
-#train_set=tr_spatialized_reverb_multich_naraWPE_1iter
-train_set=tr05_multi_isolated_6ch_track
+train_set=tr_simu_8ch_multich
 train_aux_set=train_si284
-train_dev=dt05_multi_isolated_6ch_track
-train_test=et05_multi_isolated_6ch_track
-recog_sets="dt05_simu_isolated_6ch_track dt05_real_isolated_6ch_track et05_simu_isolated_6ch_track et05_real_isolated_6ch_track"
+train_dev=dt_multi_8ch_multich
+recog_sets="dt_simu_8ch_multich dt_real_8ch_multich et_simu_8ch_multich et_real_8ch_multich"
 
+
+if [ ${stage} -le 0 ] && [ ${stop_stage} -ge 0 ]; then
+    ### Task dependent. You have to make the following data preparation part by yourself.
+    ### But you can utilize Kaldi recipes in most cases
+    echo "stage 0: Data preparation"
+    local/data.sh --nch_se ${nch_se}
+fi
 
 feat_tr_dir=data/${train_set}; #${dumpdir}/${train_set}/delta${do_delta}; mkdir -p ${feat_tr_dir}
 feat_dt_dir=data/${train_dev}; #${dumpdir}/${train_dev}/delta${do_delta}; mkdir -p ${feat_dt_dir}
 if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
-    ### Task dependent. You have to design training and dev sets by yourself.
-    ### But you can utilize Kaldi recipes in most cases
-    #echo "stage 1: Feature Generation"
-    #fbankdir=fbank
-    ## Generate the fbank features; by default 80-dimensional fbanks with pitch on each frame
-    #for x in train_si284 test_dev93 test_eval92; do
-    #    steps/make_fbank_pitch.sh --cmd "$train_cmd" --nj 10 --write_utt2num_frames true \
-    #        data/${x} exp/make_fbank/${x} ${fbankdir}
-    #done
-
-    ## compute global CMVN
-    #compute-cmvn-stats scp:data/${train_set}/feats.scp data/${train_set}/cmvn.ark
-
-    ## dump features for training
-    #if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d ${feat_tr_dir}/storage ]; then
-    #utils/create_split_dir.pl \
-    #    /export/b{10,11,12,13}/${USER}/espnet-data/egs/wsj/asr1/dump/${train_set}/delta${do_delta}/storage \
-    #    ${feat_tr_dir}/storage
-    #fi
-    #if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d ${feat_dt_dir}/storage ]; then
-    #utils/create_split_dir.pl \
-    #    /export/b{10,11,12,13}/${USER}/espnet-data/egs/wsj/asr1/dump/${train_dev}/delta${do_delta}/storage \
-    #    ${feat_dt_dir}/storage
-    #fi
     echo "stage 1: Dump wav files into a HDF5 file"
-    false && {
-    for setname in ${train_set} ${train_dev} ${train_test}; do
-        mkdir -p data/${setname}_multich
-        <data/${setname}/utt2spk sed -r 's/^(.*?).CH[0-9](_?.*?) /\1\2 /g' | sort -u >data/${setname}_multich/utt2spk
-        <data/${setname}/text_spk1 sed -r 's/^(.*?).CH[0-9](_?.*?) /\1\2 /g' | sort -u >data/${setname}_multich/text_spk1
-        #<data/${setname}/text_spk2 sed -r 's/^(.*?).CH[0-9](_?.*?) /\1\2 /g' | sort -u >data/${setname}_multich/text_spk2
-        <data/${setname}_multich/utt2spk utils/utt2spk_to_spk2utt.pl >data/${setname}_multich/spk2utt
 
-        for ch in 1 2; do
-            <data/${setname}/wav.scp grep "CH${ch}" | sed -r 's/^(.*?).CH[0-9](_?.*?) /\1\2 /g' >data/${setname}_multich/wav_ch${ch}.scp
-        done
-        mix-mono-wav-scp.py data/${setname}_multich/wav_ch*.scp >data/${setname}_multich/wav.scp
-        rm -f data/${setname}_multich/wav_ch*.scp
+    dump_pcm.sh --cmd "$train_cmd" --nj 32 --filetype "sound.hdf5" --format flac data/${train_set}
+    for rtask in ${recog_sets}; do
+        feat_recog_dir=data/${rtask}/delta${do_delta}; mkdir -p ${feat_recog_dir}
+        dump_pcm.sh --cmd "$train_cmd" --nj 32 --filetype "sound.hdf5" --format flac data/${rtask}
     done
-    }
 
-##    dump_pcm.sh --cmd "$train_cmd" --nj 32 --filetype "sound.hdf5" --format flac data/${train_set}
-##    dump_pcm.sh --cmd "$train_cmd" --nj 32 --filetype "sound.hdf5" --format flac data/${train_dev}
-##    for rtask in ${recog_sets}; do
-##        feat_recog_dir=data/${rtask}/delta${do_delta}; mkdir -p ${feat_recog_dir}
-##        dump_pcm.sh --cmd "$train_cmd" --nj 32 --filetype "sound.hdf5" --format flac data/${rtask}
-##    done
-
-    #for setname in cv_single tr_single; do
-#    for setname in train_si284; do
-#        <data/${setname}/utt2spk utils/utt2spk_to_spk2utt.pl >data/${setname}/spk2utt
-#    done
-#    #dump_pcm.sh --cmd "$train_cmd" --nj 32 --filetype "sound.hdf5" --format flac data/tr_single
-#    #dump_pcm.sh --cmd "$train_cmd" --nj 32 --filetype "sound.hdf5" --format flac data/cv_single
-#    dump_pcm.sh --cmd "$train_cmd" --nj 32 --filetype "sound.hdf5" --format flac data/train_si284
     dump_pcm.sh --cmd "$train_cmd" --nj 32 --filetype "sound.hdf5" --format flac data/${train_aux_set}
+
+    echo "combine real and simulation development data"
+    utils/combine_data.sh data/dt_multi_8ch_multich data/dt_real_8ch_multich data/dt_simu_8ch_multich
+    echo "combine reverb simulation and wsj clean training data"
+    utils/combine_data.sh data/${train_set}_si284 data/${train_aux_set} data/${train_set}
 fi
 
-dict=data/lang_1char/tr_units.txt
+dict=data/lang_1char/${train_set}_si284_units.txt
+echo "dictionary: ${dict}"
 nlsyms=data/lang_1char/non_lang_syms.txt
 
-echo "dictionary: ${dict}"
 if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     ### Task dependent. You have to check non-linguistic symbols used in the corpus.
     echo "stage 2: Dictionary and Json Data Preparation"
     mkdir -p data/lang_1char/
 
     echo "make a non-linguistic symbol list"
-    cut -f 2- data/train_si284/text | tr " " "\n" | sort | uniq | grep "<" > ${nlsyms}
+    cut -f 2- data/${train_set}_si284/text | tr " " "\n" | sort | uniq | grep "<" > ${nlsyms}
     cat ${nlsyms}
 
     echo "make a dictionary"
     echo "<unk> 1" > ${dict} # <unk> must be 1, 0 will be used for "blank" in CTC
-    text2token.py -s 1 -n 1 -l ${nlsyms} data/train_si284/text | cut -f 2- -d" " | tr " " "\n" \
+    text2token.py -s 1 -n 1 -l ${nlsyms} data/${train_set}_si284/text | cut -f 2- -d" " | tr " " "\n" \
     | sort | uniq | grep -v -e '^\s*$' | awk '{print $0 " " NR+1}' >> ${dict}
     wc -l ${dict}
 
@@ -234,26 +208,23 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         lmdatadir=data/local/wordlm_train
         lmdict=${lmdatadir}/wordlist_${lm_vocabsize}.txt
         mkdir -p ${lmdatadir}
-        cut -f 2- -d" " data/${train_set}/text > ${lmdatadir}/train_trans.txt
+        cut -f 2- -d" " data/${train_set}_si284/text > ${lmdatadir}/train_trans.txt
         zcat ${wsj1}/13-32.1/wsj1/doc/lng_modl/lm_train/np_data/{87,88,89}/*.z \
                 | grep -v "<" | tr "[:lower:]" "[:upper:]" > ${lmdatadir}/train_others.txt
         cut -f 2- -d" " data/${train_dev}/text > ${lmdatadir}/valid.txt
-        cut -f 2- -d" " data/${train_test}/text > ${lmdatadir}/test.txt
         cat ${lmdatadir}/train_trans.txt ${lmdatadir}/train_others.txt > ${lmdatadir}/train.txt
         text2vocabulary.py -s ${lm_vocabsize} -o ${lmdict} ${lmdatadir}/train.txt
     else
         lmdatadir=data/local/lm_train
         lmdict=${dict}
         mkdir -p ${lmdatadir}
-        text2token.py -s 1 -n 1 -l ${nlsyms} data/${train_set}/text \
+        text2token.py -s 1 -n 1 -l ${nlsyms} data/${train_set}_si284/text \
             | cut -f 2- -d" " > ${lmdatadir}/train_trans.txt
         zcat ${wsj1}/13-32.1/wsj1/doc/lng_modl/lm_train/np_data/{87,88,89}/*.z \
             | grep -v "<" | tr "[:lower:]" "[:upper:]" \
             | text2token.py -n 1 | cut -f 2- -d" " > ${lmdatadir}/train_others.txt
         text2token.py -s 1 -n 1 -l ${nlsyms} data/${train_dev}/text \
             | cut -f 2- -d" " > ${lmdatadir}/valid.txt
-        text2token.py -s 1 -n 1 -l ${nlsyms} data/${train_test}/text \
-                | cut -f 2- -d" " > ${lmdatadir}/test.txt
         cat ${lmdatadir}/train_trans.txt ${lmdatadir}/train_others.txt > ${lmdatadir}/train.txt
     fi
 
@@ -263,6 +234,7 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     fi
     ${cuda_cmd} --gpu ${ngpu} ${lmexpdir}/train.log \
         lm_train.py \
+        --config ${lm_config} \
         --ngpu ${ngpu} \
         --backend ${backend} \
         --verbose 1 \
@@ -270,7 +242,6 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         --tensorboard-dir tensorboard/${lmexpname} \
         --train-label ${lmdatadir}/train.txt \
         --valid-label ${lmdatadir}/valid.txt \
-        --test-label ${lmdatadir}/test.txt \
         --resume ${lm_resume} \
         --layer ${lm_layers} \
         --unit ${lm_units} \
@@ -307,9 +278,8 @@ else
     chs=
 fi
 if [ -z "$resume" ]; then
-    #expname=${expname}${multich_epochs:+_fromE$multich_epochs}_${chs}5taps${use_vad_mask:+_vad_mask}${bf_wpe_tag:+_tag_$bf_wpe_tag}_$(date +"%Y_%m_%d")
-    # expname=refch5_${expname}${multich_epochs:+_fromE$multich_epochs}_${chs}5taps${use_vad_mask:+_vad_mask}${bf_wpe_tag:+_tag_$bf_wpe_tag}_$(date +"%Y_%m_%d")
-    expname=random_bypass_frontend_with_specAug_refch5_${expname}${multich_epochs:+_fromE$multich_epochs}_${chs}5taps${use_vad_mask:+_vad_mask}${bf_wpe_tag:+_tag_$bf_wpe_tag}_$(date +"%Y_%m_%d")
+    # expdir=exp/${expname}${multich_epochs:+_fromE$multich_epochs}_${chs}5taps${use_vad_mask:+_vad_mask}${bf_wpe_tag:+_tag_$bf_wpe_tag}_$(date +"%Y_%m_%d")
+    expname=random_bypass_frontend_with_specAug_${expname}${multich_epochs:+_fromE$multich_epochs}_${chs}5taps${use_vad_mask:+_vad_mask}${bf_wpe_tag:+_tag_$bf_wpe_tag}_$(date +"%Y_%m_%d")
     expdir=exp_finetune/${expname}
 else
     resume_dir=$(dirname "$resume")

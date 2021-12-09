@@ -214,6 +214,12 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
 
         group = parser.add_argument_group("E2E encoder setting for multi-speaker")
         group.add_argument(
+            "--randomly-bypass-frontend",
+            type=strtobool,
+            default=False,
+            help="whether to randomly bypass the frontend for single-speaker data"
+        )
+        group.add_argument(
             "--tBPTT",
             type=strtobool,
             default=False,
