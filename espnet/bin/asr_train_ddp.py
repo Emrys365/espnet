@@ -166,36 +166,65 @@ def main(cmd_args):
     logging.info("backend = " + args.backend)
 
     if args.num_spkrs == 1:
-        ##################################
-        # distributed setting (for apex) #
-        ##################################
-        assert args.ngpu == 1, "In DDP Training mode, ngpu must be 1"
-        if not os.path.exists(args.outdir):
-            os.makedirs(args.outdir, exist_ok=True)
-        sync_file = os.path.abspath(args.outdir) + '/synchronized'
-        if args.rank == 0:
-            if os.path.exists(sync_file):
-                os.remove(sync_file)
-        torch.distributed.init_process_group(
-            backend = 'nccl',
-            init_method = 'file://' + sync_file,
-            world_size = args.world_size,
-            rank = args.rank
-        )
-        torch.set_num_threads(2)
-        # ------------------------------------------------------------
+        if args.model_module.startswith("espnet.nets.pytorch_backend.e2e_asr_mix"):
+            #############################################
+            # distributed setting (ported from espnet2) #
+            #############################################
+            from espnet2.train.distributed_utils import resolve_distributed_mode
 
-        if args.backend == "chainer":
-            raise Exception('ddp training currently not support chainer mode')
-            from espnet.asr.chainer_backend.asr import train
+            args.dist_backend = "nccl"
+            args.dist_world_size = None
+            args.dist_rank = None
+            args.local_rank = None
+            args.dist_master_addr = None
+            args.dist_master_port = None
+            # "distributed" is decided using the other command args
+            # (other related arguments in `args` will also be modified)
+            resolve_distributed_mode(args)
+            # ------------------------------------------------------------
 
-            train(args)
-        elif args.backend == "pytorch":
-            from espnet.asr.pytorch_backend.asr_ddp import train
+            # FIXME(kamo): Support --model-module
+            if args.backend == "pytorch":
+                if getattr(args, "mimo_with_ss_loss", False):
+                    #from espnet.asr.pytorch_backend.asr_mix_with_ss_ddp import train
+                    raise ValueError("Not supported yet")
+                else:
+                    from espnet.asr.pytorch_backend.asr_ddp import train
 
-            train(args)
+                train(args)
+            else:
+                raise ValueError("Only pytorch is supported.")
         else:
-            raise ValueError("Only chainer and pytorch are supported.")
+            ##################################
+            # distributed setting (for apex) #
+            ##################################
+            assert args.ngpu == 1, "In DDP Training mode, ngpu must be 1"
+            if not os.path.exists(args.outdir):
+                os.makedirs(args.outdir, exist_ok=True)
+            sync_file = os.path.abspath(args.outdir) + '/synchronized'
+            if args.rank == 0:
+                if os.path.exists(sync_file):
+                    os.remove(sync_file)
+            torch.distributed.init_process_group(
+                backend = 'nccl',
+                init_method = 'file://' + sync_file,
+                world_size = args.world_size,
+                rank = args.rank
+            )
+            torch.set_num_threads(2)
+            # ------------------------------------------------------------
+
+            if args.backend == "chainer":
+                raise Exception('ddp training currently not support chainer mode')
+                from espnet.asr.chainer_backend.asr import train
+
+                train(args)
+            elif args.backend == "pytorch":
+                from espnet.asr.pytorch_backend.asr_ddp import train
+
+                train(args)
+            else:
+                raise ValueError("Only chainer and pytorch are supported.")
     else:
         #############################################
         # distributed setting (ported from espnet2) #

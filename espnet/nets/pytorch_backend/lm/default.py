@@ -338,8 +338,22 @@ class RNNLM(nn.Module):
 
     def zero_state(self, batchsize):
         """Initialize state."""
-        p = next(self.parameters())
-        return torch.zeros(batchsize, self.n_units).to(device=p.device, dtype=p.dtype)
+        # for compatibility in PyTorch 1.5
+        try:
+            p = next(self.parameters())
+            device = p.device
+            dtype = p.dtype
+        except StopIteration:
+            # for compatibility in PyTorch 1.5
+            def find_tensor_attributes(module: torch.nn.Module) -> List[Tuple[str, torch.Tensor]]:
+                tuples = [(k, v) for k, v in module.__dict__.items() if torch.is_tensor(v)]
+                return tuples
+
+            gen = self._named_members(get_members_fn=find_tensor_attributes)
+            first_tuple = next(gen)
+            device = first_tuple[1].device
+            dtype = first_tuple[1].dtype
+        return torch.zeros(batchsize, self.n_units).to(device=device, dtype=dtype)
 
     def forward(self, state, x):
         """Forward neural networks."""

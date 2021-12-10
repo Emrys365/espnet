@@ -6,7 +6,9 @@
 
 """Training/decoding definition for the speech recognition task."""
 
+import argparse
 import copy
+from distutils.version import LooseVersion
 import json
 import logging
 import math
@@ -59,11 +61,20 @@ from espnet.utils.training.train_utils import check_early_stop
 from espnet.utils.training.train_utils import set_early_stop
 
 # ddp related
-from apex.parallel import convert_syncbn_model
-from apex.parallel import DistributedDataParallel
+from espnet2.train.distributed_utils import DistributedOption
+from espnet2.train.distributed_utils import free_port
+from espnet2.train.distributed_utils import get_master_port
+from espnet2.train.distributed_utils import get_node_rank
+from espnet2.train.distributed_utils import get_num_nodes
+from espnet2.utils.build_dataclass import build_dataclass
 import matplotlib
 
 matplotlib.use("Agg")
+
+if LooseVersion(torch.__version__) >= LooseVersion("1.5.0"):
+    from torch.multiprocessing.spawn import ProcessContext
+else:
+    from torch.multiprocessing.spawn import SpawnContext as ProcessContext
 
 if sys.version_info[0] == 2:
     from itertools import izip_longest as zip_longest
@@ -207,8 +218,7 @@ class CustomUpdater(StandardUpdater):
         # Compute the loss at this time step and accumulate it
         #if self.ngpu == 0:
         if self.ngpu <= 1:
-#            loss = self.model(*x).mean() / self.accum_grad
-            loss0 = self.model(*x)
+           loss = self.model(*x).mean() / self.accum_grad
         else:
             # apex does not support torch.nn.DataParallel
            loss = (
@@ -403,8 +413,11 @@ class CustomConverterMulEnc(object):
         return xs_list_pad, ilens_list, ys_pad
 
 
-def load_pretrained_modules(model_path, target_model, match_keys, freeze_parms=False):
-    src_model_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+def load_pretrained_modules(model_path, target_model, match_keys, freeze_parms=False, map_location=None):
+    if map_location is None:
+        src_model_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+    else:
+        src_model_dict = torch.load(model_path, map_location=map_location)
     tgt_model_dict = target_model.state_dict()
 
     from collections import OrderedDict
@@ -428,8 +441,11 @@ def load_pretrained_modules(model_path, target_model, match_keys, freeze_parms=F
     return target_model
 
 
-def init_wpd_model_from_mvdr_wpe(model_path, target_model, freeze_parms=False):
-    src_model_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+def init_wpd_model_from_mvdr_wpe(model_path, target_model, freeze_parms=False, map_location=None):
+    if map_location is None:
+        src_model_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+    else:
+        src_model_dict = torch.load(model_path, map_location=map_location)
     tgt_model_dict = target_model.state_dict()
 
     from collections import OrderedDict
@@ -448,7 +464,7 @@ def init_wpd_model_from_mvdr_wpe(model_path, target_model, freeze_parms=False):
     if freeze_parms:
         for name, param in target_model.named_parameters():
             if name in filtered_dict and re.search(r'(encoder|decoder|ctc)', name):
-                    param.requires_grad = False
+                param.requires_grad = False
 
     return target_model
 
@@ -460,6 +476,109 @@ def train(args):
         args (namespace): The program arguments.
 
     """
+    if not args.distributed or not args.multiprocessing_distributed:
+        train_main_worker(args)
+    else:
+        assert args.ngpu > 1, args.ngpu
+        # Multi-processing distributed mode: e.g. 2node-4process-4GPU
+        # |   Host1     |    Host2    |
+        # |   Process1  |   Process2  |  <= Spawn processes
+        # |Child1|Child2|Child1|Child2|
+        # |GPU1  |GPU2  |GPU1  |GPU2  |
+
+        # See also the following usage of --multiprocessing-distributed:
+        # https://github.com/pytorch/examples/blob/master/imagenet/main.py
+        num_nodes = get_num_nodes(args.dist_world_size, args.dist_launcher)
+        logging.warning('num_nodes: ', num_nodes)
+        if num_nodes == 1:
+            args.dist_master_addr = "localhost"
+            args.dist_rank = 0
+            # Single node distributed training with multi-GPUs
+            if (
+                args.dist_init_method == "env://"
+                and get_master_port(args.dist_master_port) is None
+            ):
+                # Get the unused port
+                args.dist_master_port = free_port()
+
+        # Assume that nodes use same number of GPUs each other
+        args.dist_world_size = args.ngpu * num_nodes
+        node_rank = get_node_rank(args.dist_rank, args.dist_launcher)
+        logging.warning('node_rank: ', node_rank)
+
+        # The following block is copied from:
+        # https://github.com/pytorch/pytorch/blob/master/torch/multiprocessing/spawn.py
+        error_queues = []
+        processes = []
+        mp = torch.multiprocessing.get_context("spawn")
+        for i in range(args.ngpu):
+            # Copy args
+            local_args = argparse.Namespace(**vars(args))
+
+            local_args.local_rank = i
+            local_args.dist_rank = args.ngpu * node_rank + i
+            local_args.ngpu = 1
+
+            process = mp.Process(
+                target=train_main_worker,
+                args=(local_args,),
+                daemon=False,
+            )
+            process.start()
+            processes.append(process)
+            error_queues.append(mp.SimpleQueue())
+        # Loop on join until it returns True or raises an exception.
+        while not ProcessContext(processes, error_queues).join():
+            pass
+
+
+def train_main_worker(args):
+    """Training process with the given args.
+
+    Args:
+        args (namespace): The program arguments.
+
+    """
+    # 0. Init distributed process
+    distributed_option = build_dataclass(DistributedOption, args)
+    # Setting distributed_option.dist_rank, etc.
+    distributed_option.init_options()
+    logging.warning(distributed_option)
+
+    # Remove all handlers associated with the root logger object
+    # before we reset the basicConfig
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    if not distributed_option.distributed or distributed_option.dist_rank == 0:
+        if not distributed_option.distributed:
+            _rank = ""
+        else:
+            _rank = (
+                f":{distributed_option.dist_rank}/"
+                f"{distributed_option.dist_world_size}"
+            )
+
+        # NOTE(kamo):
+        # logging.basicConfig() is invoked in train_main_worker() instead of main()
+        # because it can be invoked only once in a process.
+        # FIXME(kamo): Should we use logging.getLogger()?
+        log_level = logging.INFO if args.verbose > 0 else logging.WARN
+        logging.basicConfig(
+            level=log_level,
+            format=f"[{os.uname()[1].split('.')[0]}{_rank}]"
+            f" %(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s",
+        )
+    else:
+        # Suppress logging if RANK != 0
+        logging.basicConfig(
+            level="ERROR",
+            format=f"[{os.uname()[1].split('.')[0]}"
+            f":{distributed_option.dist_rank}/{distributed_option.dist_world_size}]"
+            f" %(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s",
+        )
+    # Invoking torch.distributed.init_process_group
+    distributed_option.init_torch_distributed()
+
     set_deterministic_pytorch(args)
     if args.num_encs > 1:
         args = format_mulenc_args(args)
@@ -471,11 +590,11 @@ def train(args):
     # get input and output dimension info
     with open(args.valid_json, "rb") as f:
         valid_json = json.load(f)["utts"]
-    utts = list(valid_json.keys())
+    utt0 = next(iter(valid_json.keys()))
     idim_list = [
-        int(valid_json[utts[0]]["input"][i]["shape"][-1]) for i in range(args.num_encs)
+        int(valid_json[utt0]["input"][i]["shape"][-1]) for i in range(args.num_encs)
     ]
-    odim = int(valid_json[utts[0]]["output"][0]["shape"][-1])
+    odim = int(valid_json[utt0]["output"][0]["shape"][-1])
     for i in range(args.num_encs):
         logging.info("stream{}: input dims : {}".format(i + 1, idim_list[i]))
     logging.info("#output dims: " + str(odim))
@@ -490,6 +609,9 @@ def train(args):
     else:
         mtl_mode = "mtl"
         logging.info("Multitask learning mode")
+
+    if args.model_module.endswith('e2e_asr_mix_transformer_1ch:E2E'):
+        args.test_nmics = 1
 
     if (args.enc_init is not None or args.dec_init is not None) and args.num_encs == 1:
         model = load_trained_modules(idim_list[0], odim, args)
@@ -507,23 +629,35 @@ def train(args):
 
     # load pretrained model
     if getattr(args, "init_from_mdl", ""):
-        init_wpd_model_from_mvdr_wpe(args.init_from_mdl, model, freeze_parms=True)
+        init_wpd_model_from_mvdr_wpe(
+            args.init_from_mdl, model, freeze_parms=True,
+            map_location=f"cuda:{torch.cuda.current_device()}" if args.ngpu > 0 else "cpu",
+        )
         logging.info("Loading pretrained model " + args.init_from_mdl)
 
     elif getattr(args, "init_frontend", "") and getattr(args, "init_asr", ""):
         match_keys = r'^frontend\..*' #r'\.enc\..*' # r'^(?!.*enc_sd).*$'
         #load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=True)
-        load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=False)
+        load_pretrained_modules(
+            args.init_frontend, model, match_keys, freeze_parms=False,
+            map_location=f"cuda:{torch.cuda.current_device()}" if args.ngpu > 0 else "cpu"
+        )
         match_keys = r'(encoder|decoder|ctc)'
         #match_keys = r'^(?!.*frontend).*'
 #        load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=True)
-        load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=False)
+        load_pretrained_modules(
+            args.init_asr, model, match_keys, freeze_parms=False,
+            map_location=f"cuda:{torch.cuda.current_device()}" if args.ngpu > 0 else "cpu"
+        )
 #        torch_load(args.init_model_path, model)
         logging.info("Loading pretrained model " + args.init_frontend + " and " + args.init_asr)
 
     elif getattr(args, "init_frontend", ""):
         match_keys = r'^frontend\..*' #r'\.enc\..*' # r'^(?!.*enc_sd).*$'
-        load_pretrained_modules(args.init_frontend, model, match_keys, freeze_parms=False)
+        load_pretrained_modules(
+            args.init_frontend, model, match_keys, freeze_parms=False,
+            map_location=f"cuda:{torch.cuda.current_device()}" if args.ngpu > 0 else "cpu"
+        )
 #        torch_load(args.init_model_path, model)
         logging.info("Loading pretrained model " + args.init_frontend)
 
@@ -532,7 +666,10 @@ def train(args):
         #load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=False)
         match_keys = r'(encoder|decoder|ctc)'
         #load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=True)
-        load_pretrained_modules(args.init_asr, model, match_keys, freeze_parms=False)
+        load_pretrained_modules(
+            args.init_asr, model, match_keys, freeze_parms=False,
+            map_location=f"cuda:{torch.cuda.current_device()}" if args.ngpu > 0 else "cpu"
+        )
 #        torch_load(args.init_model_path, model)
         logging.info("Loading pretrained model " + args.init_asr)
 
@@ -550,14 +687,17 @@ def train(args):
     if args.rnnlm is not None:
         rnnlm_args = get_model_conf(args.rnnlm, args.rnnlm_conf)
         rnnlm = lm_pytorch.ClassifierWithState(
-            lm_pytorch.RNNLM(len(args.char_list), rnnlm_args.layer, rnnlm_args.unit)
+            lm_pytorch.RNNLM(
+                len(args.char_list), rnnlm_args.layer, rnnlm_args.unit))
+        torch.load(
+            args.rnnlm, rnnlm,
+            map_location=f"cuda:{torch.cuda.current_device()}" if args.ngpu > 0 else "cpu",
         )
-        torch_load(args.rnnlm, rnnlm)
         model.rnnlm = rnnlm
 
     # write model config
     model_conf = args.outdir + "/model.json"
-    if args.rank == 0:
+    if not distributed_option.distributed or distributed_option.dist_rank == 0:
         if not os.path.exists(args.outdir):
             os.makedirs(args.outdir)
         with open(model_conf, "wb") as f:
@@ -591,6 +731,7 @@ def train(args):
 
     # set torch device
     device = torch.device("cuda" if args.ngpu > 0 else "cpu")
+    logging.warning("device: {}".format(device))
     if args.train_dtype in ("float16", "float32", "float64"):
         dtype = getattr(torch, args.train_dtype)
     else:
@@ -600,10 +741,10 @@ def train(args):
     # Setup an optimizer
     if args.opt == "adadelta":
         optimizer = torch.optim.Adadelta(
-            model.parameters(), rho=0.95, eps=args.eps, weight_decay=args.weight_decay
+            model.parameters(), lr=args.lr, rho=0.95, eps=args.eps, weight_decay=args.weight_decay
         )
     elif args.opt == "adam":
-        optimizer = torch.optim.Adam(model.parameters(), weight_decay=args.weight_decay)
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr,  weight_decay=args.weight_decay)
     elif args.opt == "noam":
         from espnet.nets.pytorch_backend.transformer.optimizer import get_std_opt
 
@@ -645,16 +786,13 @@ def train(args):
     setattr(optimizer, "target", reporter)
     setattr(optimizer, "serialize", lambda s: reporter.serialize(s))
 
-    # distributed training
-    model = convert_syncbn_model(model)
-    model = DistributedDataParallel(model)
-
+    dtype2 = torch.float64 if args.model_module.startswith("espnet.nets.pytorch_backend.e2e_asr_mix") else dtype
     # Setup a converter
     if args.num_encs == 1:
-        converter = CustomConverter(subsampling_factor=model.subsample[0], dtype=dtype)
+        converter = CustomConverter(subsampling_factor=model.subsample[0], dtype=dtype2)
     else:
         converter = CustomConverterMulEnc(
-            [i[0] for i in model.subsample_list], dtype=dtype
+            [i[0] for i in model.subsample_list], dtype=dtype2
         )
 
     # read json data
@@ -680,8 +818,8 @@ def train(args):
         batch_frames_inout=args.batch_frames_inout,
         iaxis=0,
         oaxis=0,
-        rank=args.rank,
-        world_size=args.world_size,
+        rank=torch.distributed.get_rank(),
+        world_size=torch.distributed.get_world_size(),
     )
     # note(yzl23): to avoid missing data in dev set (distributed into different workers), all workers compute whole devset
     # besides, compute all data makes statistics in devset the same over all workers, this property is helpful for lr scheduler
@@ -705,14 +843,21 @@ def train(args):
         mode="asr",
         load_output=True,
         preprocess_conf=args.preprocess_conf,
+        load_wav_ref=args.load_wav_ref,
         preprocess_args={"train": True},  # Switch the mode of preprocessing
+        test_nmics=getattr(args, 'test_nmics', -1)
     )
     load_cv = LoadInputsAndTargets(
         mode="asr",
         load_output=True,
         preprocess_conf=args.preprocess_conf,
+        load_wav_ref=args.load_wav_ref,
         preprocess_args={"train": False},  # Switch the mode of preprocessing
+        test_nmics=getattr(args, 'test_nmics', -1)
     )
+    if getattr(args, 'test_nmics', -1) > 0:
+        logging.warning('Using %d-channel data (randomly selected) for training' % args.test_nmics)
+
     # hack to make batchsize argument as 1
     # actual bathsize is included in a list
     # default collate function converts numpy array to pytorch tensor
@@ -744,7 +889,10 @@ def train(args):
         args.accum_grad,
         use_apex=use_apex,
     )
-    trainer = training.Trainer(updater, (args.epochs, "epoch"), out=args.outdir)
+    if args.update_interval_iters > 0:
+        trainer = training.Trainer(updater, (args.update_interval_iters, "iteration"), out=args.outdir)
+    else:
+        trainer = training.Trainer(updater, (args.epochs, "epoch"), out=args.outdir)
 
     if use_sortagrad:
         trainer.extend(
@@ -769,7 +917,8 @@ def train(args):
         )
 
     # Save attention weight each epoch
-    if args.rank == 0 and args.num_save_attention > 0 and args.mtlalpha != 1.0:
+    if (not distributed_option.distributed or distributed_option.dist_rank == 0) and \
+        args.num_save_attention > 0 and args.mtlalpha != 1.0:
         data = sorted(
             list(valid_json.items())[: args.num_save_attention],
             key=lambda x: int(x[1]["input"][0]["shape"][1]),
@@ -801,7 +950,7 @@ def train(args):
         report_keys_cer_ctc = [
             "main/cer_ctc{}".format(i + 1) for i in range(model.num_encs)
         ] + ["validation/main/cer_ctc{}".format(i + 1) for i in range(model.num_encs)]
-    if args.rank == 0:
+    if not distributed_option.distributed or distributed_option.dist_rank == 0:
         trainer.extend(
             extensions.PlotReport(
                 [
@@ -817,6 +966,12 @@ def train(args):
                 file_name="loss.png",
             )
         )
+        trainer.extend(extensions.PlotReport(['main/loss', 'validation/main/loss'],
+                                            'epoch', file_name='loss_main.png'))
+        trainer.extend(extensions.PlotReport(['main/loss_ctc', 'validation/main/loss_ctc'],
+                                            'epoch', file_name='loss_ctc.png'))
+        trainer.extend(extensions.PlotReport(['main/loss_att', 'validation/main/loss_att'],
+                                            'epoch', file_name='loss_att.png'))
         trainer.extend(
             extensions.PlotReport(
                 ["main/acc", "validation/main/acc"], "epoch", file_name="acc.png"
@@ -908,7 +1063,7 @@ def train(args):
         logging.warning("optimize with adam lr decay 0.5")
 
     
-    if args.rank == 0:
+    if not distributed_option.distributed or distributed_option.dist_rank == 0:
         # Write a log of evaluation statistics for each epoch
         trainer.extend(
             extensions.LogReport(trigger=(args.report_interval_iters, "iteration"))
@@ -970,9 +1125,34 @@ def recog(args):
 
     """
     set_deterministic_pytorch(args)
-    model, train_args = load_trained_model(args.model)
+    if args.model_conf is not None:
+        idim, odim, train_args = get_model_conf(args.model, args.model_conf)
+        logging.info('reading model parameters from ' + args.model)
+
+        if hasattr(train_args, "model_module"):
+            model_module = train_args.model_module
+        else:
+            model_module = "espnet.nets.pytorch_backend.e2e_asr:E2E"
+        model_class = dynamic_import(model_module)
+        model = model_class(idim, odim, train_args)
+        torch_load(args.model, model)
+    else:
+        model, train_args = load_trained_model(args.model)
     assert isinstance(model, ASRInterface)
     model.recog_args = args
+    if getattr(args, 'test_btaps', -1) > 0:
+        if hasattr(model.frontend, 'taps'):
+            model.frontend.taps = args.test_btaps
+            logging.warning('setting taps to {}'.format(model.frontend.taps))
+        if hasattr(model.frontend, 'btaps'):
+            model.frontend.btaps = args.test_btaps
+            logging.warning('setting btaps to {}'.format(model.frontend.btaps))
+        if hasattr(model.frontend, 'wpe') and hasattr(model.frontend.wpe, 'taps'):
+            model.frontend.wpe.taps = args.test_btaps
+            logging.warning('setting wpe.taps to {}'.format(model.frontend.wpe.taps))
+        if hasattr(model.frontend, 'beamformer') and hasattr(model.frontend.beamformer, 'btaps'):
+            model.frontend.beamformer.btaps = args.test_btaps
+            logging.warning('setting beamformer.btaps to {}'.format(model.frontend.beamformer.btaps))
 
     if args.streaming_mode and "transformer" in train_args.model_module:
         raise NotImplementedError("streaming mode for transformer is not implemented")
@@ -1046,6 +1226,7 @@ def recog(args):
         if args.preprocess_conf is None
         else args.preprocess_conf,
         preprocess_args={"train": False},
+        test_nmics=getattr(args, 'test_nmics', -1)
     )
 
     if args.batchsize == 0:
