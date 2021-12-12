@@ -51,9 +51,12 @@ def specaug(
     :param bool replace_with_zero: if True, masked parts will be filled with 0,
         if False, filled with mean
     """
-    return time_mask(
-        freq_mask(
-            time_warp(spec, W=W),
+    time_aug = time_mask if T > 0 else identity
+    freq_aug = freq_mask if F > 0 else identity
+    warp_aug = time_warp if W > 0 else identity
+    return time_aug(
+        freq_aug(
+            warp_aug(spec, W=W),
             F=F,
             num_masks=num_freq_masks,
             replace_with_zero=replace_with_zero,
@@ -62,6 +65,10 @@ def specaug(
         num_masks=num_time_masks,
         replace_with_zero=replace_with_zero,
     )
+
+
+def identity(spec, **args):
+    return spec
 
 
 def time_warp(spec, W=5):
@@ -133,7 +140,7 @@ def time_mask(spec, T=40, num_masks=1, replace_with_zero=False):
     len_spectro = cloned.shape[1]
 
     for i in range(0, num_masks):
-        t = random.randrange(0, T)
+        t = random.randrange(0, min(len_spectro, T))
         t_zero = random.randrange(0, len_spectro - t)
 
         # avoids randrange error if values are equal and range is empty
