@@ -220,4 +220,4 @@ sbatch ${sbatch_opt} -J $jobname -o $log_file \
     ${use_vad_mask:+--use-vad-mask True} \
     ${test_nmics:+--test-nmics $test_nmics} \
     ${train_opt} \
-    $@
+    "$@"

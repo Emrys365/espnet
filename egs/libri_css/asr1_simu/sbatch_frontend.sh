@@ -75,7 +75,7 @@ if [ -n "$target_is_mask" ]; then
     if [ -n "$train_mask_only" ]; then
         jobname="${jobname}|"
     fi
-    if [ -n "mask_loss" ]; then
+    if [ -n "$mask_loss" ]; then
         jobname=${jobname}${mask_loss}
     fi
 else
@@ -121,7 +121,7 @@ if [[ "$with_category" == "True" ]]; then
 fi
 if [ -n "$target_is_mask" ]; then
     log_file=${log_file}_mask
-    if [ -n "mask_loss" ]; then
+    if [ -n "$mask_loss" ]; then
         log_file=${log_file}_${mask_loss}
     fi
 else
@@ -174,4 +174,4 @@ sbatch ${sbatch_opt} -J $jobname -o $log_file \
     ${use_vad_mask:+--use-vad-mask True} \
     ${use_complex_mask+--use-complex-mask True} \
     ${train_opt} \
-    $@
+    "$@"

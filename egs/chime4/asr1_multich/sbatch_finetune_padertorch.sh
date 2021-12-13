@@ -244,4 +244,4 @@ sbatch ${sbatch_opt} -J $jobname -o $log_file \
     ${test_nmics:+--test-nmics $test_nmics} \
     ${train_opt} \
     ${preprocess_config:+--preprocess-config $preprocess_config} \
-    $@
+    "$@"

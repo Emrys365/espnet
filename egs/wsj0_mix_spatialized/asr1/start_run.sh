@@ -244,4 +244,4 @@ run.pl $log_file \
     ${bf_wpe_tag:+--bf-wpe-tag $bf_wpe_tag} \
     ${test_nmics:+--test-nmics $test_nmics} \
     ${train_opt} \
-    $@
+    "$@"

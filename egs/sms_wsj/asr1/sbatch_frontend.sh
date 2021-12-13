@@ -176,4 +176,4 @@ sbatch ${sbatch_opt} -J $jobname -o $log_file \
     ${enh_loss_type:+--enh-loss-type $enh_loss_type} \
     ${use_vad_mask:+--use-vad-mask True} \
     ${train_opt} \
-    $@
+    "$@"
