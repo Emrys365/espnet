@@ -338,7 +338,7 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         else:
             hs_pad, hlens = xs_pad.float(), ilens
 
-        if self.use_spec_augment:
+        if self.use_spec_augment and self.training:
             if isinstance(hs_pad, list):
                 for i in range(self.num_spkrs):
                     hs_pad[i] = self.batch_specaug(hs_pad[i])
