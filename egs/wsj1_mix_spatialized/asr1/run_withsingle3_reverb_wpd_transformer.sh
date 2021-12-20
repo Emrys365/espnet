@@ -353,7 +353,7 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         --minibatches ${N} \
         --verbose ${verbose} \
         --resume ${resume} \
-        --train-json ${datadir}/${train_set}/data_2c.json \
+        --train-json ${datadir}/${train_set}/data.json \
         --valid-json ${datadir}/${train_dev}/data.json \
         --preprocess-conf ${preprocess_config} \
         --num-spkrs ${num_spkrs} \

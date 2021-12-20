@@ -23,7 +23,7 @@ do_delta=false
 fbank_fs=8000
 
 # configuration path
-preprocess_config=conf/preprocess.yaml  # use conf/specaug.yaml for data augmentation
+preprocess_config=conf/preprocess_narawpe.yaml  # use conf/specaug.yaml for data augmentation
 train_config=conf/tuning/train_multispkr_1ch.yaml
 decode_config=conf/tuning/decode_pytorch_transformer.yaml
 
@@ -387,6 +387,7 @@ fi
 if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     echo "stage 5: Decoding"
     nj=32
+    test_nmics=
 
     pids=() # initialize pids
     for rtask in ${train_dev} ${train_test}; do

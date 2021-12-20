@@ -19,7 +19,7 @@ wpd_opt= #5.3
 seed=1
 
 # testing hyper-parameters
-lm_weight=1.0
+lm_weight=1.2
 ctc_weight=0.3
 test_btaps=5
 test_nmics=5

@@ -199,7 +199,7 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
             --out data/${setname}/data.json data/${setname} ${dict}
     done
 
-    setname=tr_mix_both_anechoic_min_8k
+    setname=tr_mix_both_anechoic_max_16k
     local/data2json.sh --cmd "${train_cmd}" --nj 30 --num-spkrs 2 \
             --category "multichannel" \
             --preprocess-conf ${preprocess_config} --filetype sound.hdf5 \
@@ -213,7 +213,7 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
         --out data/${train_aux_set}/data.json data/${train_aux_set} ${dict}
 
     mkdir -p "data/tr_mix_both_anechoic_reverb_max_16k_singlespkr"
-    concatjson.py data/tr_mix_both_reverb_max_16k/data.json data/wsj_train_si284/data.json data/tr_mix_both_anechoic_max_16k > "data/tr_mix_both_anechoic_reverb_max_16k_singlespkr/data.json"
+    concatjson.py data/tr_mix_both_reverb_max_16k/data.json data/wsj_train_si284/data.json data/tr_mix_both_anechoic_max_16k/data.json > "data/tr_mix_both_anechoic_reverb_max_16k_singlespkr/data.json"
 fi
 train_set=tr_mix_both_anechoic_reverb_max_16k_singlespkr
 

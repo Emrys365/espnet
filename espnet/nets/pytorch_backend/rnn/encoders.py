@@ -65,7 +65,7 @@ class RNNP(torch.nn.Module):
         logging.debug(self.__class__.__name__ + " input lengths: " + str(ilens))
         elayer_states = []
         for layer in six.moves.range(self.elayers):
-            xs_pack = pack_padded_sequence(xs_pad, ilens, batch_first=True)
+            xs_pack = pack_padded_sequence(xs_pad, ilens.cpu(), batch_first=True)
             rnn = getattr(self, ("birnn" if self.bidir else "rnn") + str(layer))
             rnn.flatten_parameters()
             if prev_state is not None and rnn.bidirectional:
@@ -139,7 +139,7 @@ class RNN(torch.nn.Module):
         :rtype: torch.Tensor
         """
         logging.debug(self.__class__.__name__ + " input lengths: " + str(ilens))
-        xs_pack = pack_padded_sequence(xs_pad, ilens, batch_first=True)
+        xs_pack = pack_padded_sequence(xs_pad, ilens.cpu(), batch_first=True)
         self.nbrnn.flatten_parameters()
         if prev_state is not None and self.nbrnn.bidirectional:
             # We assume that when previous state is passed,

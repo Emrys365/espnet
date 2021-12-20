@@ -22,7 +22,7 @@ seed=1
 do_delta=false
 
 # configuration path
-preprocess_config=conf/preprocess.yaml  # use conf/specaug.yaml for data augmentation
+preprocess_config=conf/preprocess_narawpe.yaml  # use conf/specaug.yaml for data augmentation
 train_config=conf/tuning/train_multispkr_1ch.yaml
 #train_config=conf/tuning/train_multispkr_wyz97.yaml
 #train_config=conf/tuning/train_multispkr512_trans_wyz97_old_arch.yaml
@@ -201,14 +201,18 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
 
     #echo "make json files"
 
-    for setname in ${train_set} ${train_dev} ${train_test}; do
-    #for setname in ${train_set};  do
+    for setname in tr_spatialized_reverb_multich ${train_dev} ${train_test}; do
         local/data2json.sh --cmd "${train_cmd}" --nj 30 --num-spkrs 2 \
-            --category "multichannel" \
+            --category "multichannel_reverb" \
             --preprocess-conf ${preprocess_config} --filetype sound.hdf5 \
             --feat data/${setname}/feats.scp --nlsyms ${nlsyms} \
-            --out data/${setname}/data.json data/${setname} ${dict}
+            --out data/${setname}/data2.json data/${setname} ${dict}
     done
+    local/data2json.sh --cmd "${train_cmd}" --nj 30 --num-spkrs 2 \
+        --category "multichannel_anechoic" \
+        --preprocess-conf ${preprocess_config} --filetype sound.hdf5 \
+        --feat data/tr_spatialized_anechoic_multich/feats.scp --nlsyms ${nlsyms} \
+        --out data/tr_spatialized_anechoic_multich/data2.json data/tr_spatialized_anechoic_multich ${dict}
 
 #    setname=train_si284
 #    local/data2json.sh --cmd "${train_cmd}" --nj 30 --num-spkrs 1 \
@@ -217,10 +221,10 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
 #        --feat data/${setname}/feats.scp --nlsyms ${nlsyms} \
 #        --out data/${setname}/data.json data/${setname} ${dict}
 #
-#    mkdir -p data/${train_set}_singlespkr
-#    concatjson.py data/tr_spatialized_reverb_multich/data.json data/train_si284/data.json data/tr_spatialized_anechoic_multich/data.json > data/${train_set}_singlespkr/data.json
+   mkdir -p data/tr_spatialized_reverb_anechoic_multich
+   concatjson.py data/tr_spatialized_reverb_multich/data2.json data/tr_spatialized_anechoic_multich/data2.json > data/tr_spatialized_reverb_anechoic_multich/data.json
 fi
-#train_set=${train_set}_singlespkr
+train_set=tr_spatialized_reverb_anechoic_multich
 
 # It takes about one day. If you just want to do end-to-end ASR without LM,
 # YOU CAN SKIP this and remove --rnnlm option in the recognition (stage 5)
@@ -413,6 +417,7 @@ lm_weight=1.0
 if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     echo "stage 5: Decoding"
     nj=32
+    test_nmics=
 
     pids=() # initialize pids
     for rtask in ${train_dev} ${train_test}; do

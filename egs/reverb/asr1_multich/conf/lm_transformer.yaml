@@ -1,0 +1,26 @@
+# # Trained using GTX-1080ti x4. It takes about 2.5days.
+
+# network architecture
+model-module: transformer
+att-unit: 512
+embed-unit: 128
+head: 8
+layer: 16
+pos-enc: none
+unit: 2048
+
+# minibatch related
+batchsize: 32
+maxlen: 40
+
+# optimization related
+opt: adam
+schedulers: lr=cosine
+dropout-rate: 0.1
+epoch: 25
+gradclip: 5.0
+lr: 1e-4
+lr-cosine-total: 100000
+lr-cosine-warmup: 1000
+patience: 0
+sortagrad: 0

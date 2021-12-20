@@ -116,6 +116,7 @@ class LoadInputsAndTargets(object):
 #        logging.warning('data loading START')
         for uttid, info in batch:
             uttid_list.append(uttid)
+            is_anechoic = "anechoic" in info.get("category", "")
 
             if self.load_input:
                 # Note(kamo): This for-loop is for multiple inputs
@@ -208,7 +209,8 @@ class LoadInputsAndTargets(object):
             for x_name in return_batch.keys():
                 if x_name.startswith("input"): #or x_name.startswith("speaker"):
                     return_batch[x_name] = self.preprocessing(
-                        return_batch[x_name], uttid_list, **self.preprocess_args
+                        return_batch[x_name], uttid_list, **self.preprocess_args,
+                        do_wpe=(not is_anechoic),
                     )
 
 

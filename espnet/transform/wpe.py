@@ -34,6 +34,8 @@ class WPE(object):
 
         """
         # nara_wpe.wpe: (F, C, T)
+        if xs.ndim == 2:
+            xs = xs[:, None, :]
         xs = wpe(
             xs.transpose((2, 1, 0)),
             taps=self.taps,

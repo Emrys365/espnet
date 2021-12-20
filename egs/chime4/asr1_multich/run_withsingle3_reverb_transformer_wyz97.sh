@@ -33,6 +33,7 @@ batch_size=
 
 # rnnlm related
 use_wordlm=true     # false means to train/use a character LM
+lm_config=conf/lm_transformer.yaml #conf/lm.yaml
 lm_vocabsize=65000  # effective only for word LMs
 lm_layers=1         # 2 for character LMs
 lm_units=1000       # 650 for character LMs
@@ -65,9 +66,12 @@ test_btaps= #3
 test_nmics= #6
 
 # data
-chime4_data=/export/corpora4/CHiME4/CHiME3 # JHU setup
-wsj0=/export/corpora5/LDC/LDC93S6B            # JHU setup
-wsj1=/export/corpora5/LDC/LDC94S13B           # JHU setup
+#chime4_data=/export/corpora4/CHiME4/CHiME3 # JHU setup
+#wsj0=/export/corpora5/LDC/LDC93S6B            # JHU setup
+#wsj1=/export/corpora5/LDC/LDC94S13B           # JHU setup
+chime4_data=/mnt/lustre/sjtu/shared/data/asr/rawdata/CHIME3/CHiME4
+wsj0=/mnt/lustre/sjtu/shared/data/asr/rawdata/WSJ/wsj0
+wsj1=/mnt/lustre/sjtu/shared/data/asr/rawdata/WSJ/wsj1
 
 # frontend network architecture
 use_padertorch_frontend=
@@ -207,7 +211,6 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     mkdir -p "data/${train_set}_singlespkr"
     concatjson.py data/${train_set}/data.json data/${train_aux_set}/data.json > "data/${train_set}_singlespkr/data.json"
 fi
-train_set=${train_set}_singlespkr
 
 # It takes about one day. If you just want to do end-to-end ASR without LM,
 # YOU CAN SKIP this and remove --rnnlm option in the recognition (stage 5)
@@ -218,8 +221,9 @@ if [ -z ${lmtag} ]; then
     fi
 fi
 # lmexpname=train_rnnlm_${backend}_${lmtag}
-# lmexpdir=exp/${lmexpname}
-lmexpdir=exp/train_rnnlm_pytorch_lm_word65000
+lmexpname=train_transformer_lm_pytorch
+lmexpdir=exp/${lmexpname}
+#lmexpdir=exp/train_rnnlm_pytorch_lm_word65000
 mkdir -p ${lmexpdir}
 
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
@@ -258,6 +262,7 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     fi
     ${cuda_cmd} --gpu ${ngpu} ${lmexpdir}/train.log \
         lm_train.py \
+        --config ${lm_config} \
         --ngpu ${ngpu} \
         --backend ${backend} \
         --verbose 1 \
@@ -267,18 +272,19 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         --valid-label ${lmdatadir}/valid.txt \
         --test-label ${lmdatadir}/test.txt \
         --resume ${lm_resume} \
-        --layer ${lm_layers} \
-        --unit ${lm_units} \
-        --opt ${lm_opt} \
-        --sortagrad ${lm_sortagrad} \
-        --batchsize ${lm_batchsize} \
-        --epoch ${lm_epochs} \
-        --patience ${lm_patience} \
-        --maxlen ${lm_maxlen} \
         --dict ${lmdict}
+#        --layer ${lm_layers} \
+#        --unit ${lm_units} \
+#        --opt ${lm_opt} \
+#        --sortagrad ${lm_sortagrad} \
+#        --batchsize ${lm_batchsize} \
+#        --epoch ${lm_epochs} \
+#        --patience ${lm_patience} \
+#        --maxlen ${lm_maxlen} \
 fi
 
 
+train_set=${train_set}_singlespkr
 if [ -z ${tag} ]; then
     if [ -n "$init_from_mdl" ]; then
         expname=seed${seed}_${train_set}2c_${backend}_$(basename ${train_config%.*})_$(basename ${preprocess_config%.*})_init_from_mdl${lr:+_lr$lr} #_wpd_souden

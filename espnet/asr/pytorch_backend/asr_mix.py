@@ -51,6 +51,9 @@ from espnet.utils.training.tensorboard_logger import TensorboardLogger
 from espnet.utils.training.train_utils import check_early_stop
 from espnet.utils.training.train_utils import set_early_stop
 
+from espnet2.torch_utils.model_summary import model_summary
+from espnet2.torch_utils.pytorch_version import pytorch_cudnn_version
+
 import matplotlib
 matplotlib.use('Agg')
 
@@ -240,11 +243,13 @@ def train(args):
     model = model_class(idim, odim, args)
     assert isinstance(model, ASRInterface)
     subsampling_factor = model.subsample[0]
-    logging.warning('E2E model:\n{}'.format(model))
-    logging.warning(
-        " Total parameter of the model = "
-        + str(sum(p.numel() for p in model.parameters()))
-    )
+    #logging.warning('E2E model:\n{}'.format(model))
+    #logging.warning(
+    #    " Total parameter of the model = "
+    #    + str(sum(p.numel() for p in model.parameters()))
+    #)
+    logging.warning(pytorch_cudnn_version())
+    logging.warning(model_summary(model))
 
     # load pretrained model
     if args.init_from_mdl:

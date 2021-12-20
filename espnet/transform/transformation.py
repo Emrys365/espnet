@@ -6,6 +6,7 @@ import sys
 
 import yaml
 
+from espnet.transform.wpe import WPE
 from espnet.utils.dynamic_import import dynamic_import
 
 
@@ -129,6 +130,9 @@ class Transformation(object):
         if self.conf.get("mode", "sequential") == "sequential":
             for idx in range(len(self.conf["process"])):
                 func = self.functions[idx]
+                if isinstance(func, WPE) and not kwargs.get("do_wpe", True):
+                    print("^", end="", flush=True)
+                    continue
                 # TODO(karita): use TrainingTrans and UttTrans to check __call__ args
                 # Derive only the args which the func has
                 try:

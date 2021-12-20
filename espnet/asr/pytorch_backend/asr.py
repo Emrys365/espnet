@@ -57,6 +57,9 @@ from espnet.utils.training.tensorboard_logger import TensorboardLogger
 from espnet.utils.training.train_utils import check_early_stop
 from espnet.utils.training.train_utils import set_early_stop
 
+from espnet2.torch_utils.model_summary import model_summary
+from espnet2.torch_utils.pytorch_version import pytorch_cudnn_version
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -203,8 +206,7 @@ class CustomUpdater(StandardUpdater):
         # Compute the loss at this time step and accumulate it
         #if self.ngpu == 0:
         if self.ngpu <= 1:
-#            loss = self.model(*x).mean() / self.accum_grad
-            loss0 = self.model(*x)
+            loss = self.model(*x).mean() / self.accum_grad
         else:
             # apex does not support torch.nn.DataParallel
            loss = (
@@ -495,7 +497,13 @@ def train(args):
             idim_list[0] if args.num_encs == 1 else idim_list, odim, args
         )
     assert isinstance(model, ASRInterface)
-    logging.warning('E2E model:\n{}'.format(model))
+    #logging.warning('E2E model:\n{}'.format(model))
+    #logging.warning(
+    #    " Total parameter of the model = "
+    #    + str(sum(p.numel() for p in model.parameters()))
+    #)
+    logging.warning(pytorch_cudnn_version())
+    logging.warning(model_summary(model))
 
     # load pretrained model
     if getattr(args, "init_from_mdl", ""):

@@ -66,6 +66,8 @@ from espnet2.train.distributed_utils import free_port
 from espnet2.train.distributed_utils import get_master_port
 from espnet2.train.distributed_utils import get_node_rank
 from espnet2.train.distributed_utils import get_num_nodes
+from espnet2.torch_utils.model_summary import model_summary
+from espnet2.torch_utils.pytorch_version import pytorch_cudnn_version
 from espnet2.utils.build_dataclass import build_dataclass
 import matplotlib
 
@@ -621,11 +623,13 @@ def train_main_worker(args):
             idim_list[0] if args.num_encs == 1 else idim_list, odim, args
         )
     assert isinstance(model, ASRInterface)
-    logging.warning('E2E model:\n{}'.format(model))
-    logging.warning(
-        " Total parameter of the model = "
-        + str(sum(p.numel() for p in model.parameters()))
-    )
+    #logging.warning('E2E model:\n{}'.format(model))
+    #logging.warning(
+    #    " Total parameter of the model = "
+    #    + str(sum(p.numel() for p in model.parameters()))
+    #)
+    logging.warning(pytorch_cudnn_version())
+    logging.warning(model_summary(model))
 
     # load pretrained model
     if getattr(args, "init_from_mdl", ""):

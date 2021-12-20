@@ -25,7 +25,7 @@ fbank_fs=16000
 # configuration path
 preprocess_config=conf/preprocess.yaml  # use conf/specaug.yaml for data augmentation
 train_config=conf/tuning/train_multispkr_trans_wyz97_padertorch_mvdr_atf_tbptt.yaml
-lm_config=conf/lm.yaml
+lm_config=conf/lm_transformer.yaml #conf/lm.yaml
 decode_config=conf/tuning/decode_pytorch_transformer.yaml
 
 # network architecture
@@ -74,10 +74,14 @@ test_btaps= #3
 test_nmics= #6
 
 # data
-reverb=/export/corpora5/REVERB_2014/REVERB    # JHU setup
-wsjcam0=/export/corpora3/LDC/LDC95S24/wsjcam0 # JHU setup
-wsj0=/export/corpora5/LDC/LDC93S6B            # JHU setup
-wsj1=/export/corpora5/LDC/LDC94S13B           # JHU setup
+#reverb=/export/corpora5/REVERB_2014/REVERB    # JHU setup
+#wsjcam0=/export/corpora3/LDC/LDC95S24/wsjcam0 # JHU setup
+#wsj0=/export/corpora5/LDC/LDC93S6B            # JHU setup
+#wsj1=/export/corpora5/LDC/LDC94S13B           # JHU setup
+reverb=/mnt/lustre/sjtu/shared/data/asr/rawdata/REVERB
+wsjcam0=/mnt/lustre/sjtu/shared/data/asr/rawdata/REVERB/wsjcam0
+wsj0=/mnt/lustre/sjtu/shared/data/asr/rawdata/WSJ/wsj0
+wsj1=/mnt/lustre/sjtu/shared/data/asr/rawdata/WSJ/wsj1
 wavdir=${PWD}/wav # place to store WAV files
 
 # frontend network architecture
@@ -104,6 +108,7 @@ set -e
 set -u
 set -o pipefail
 
+#train_set=tr_spatialized_reverb_multich_naraWPE_1iter
 train_set=tr_simu_8ch_multich
 train_aux_set=train_si284
 train_dev=dt_multi_8ch_multich
@@ -181,7 +186,6 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     mkdir -p "data/${train_set}_singlespkr"
     concatjson.py data/${train_set}/data.json data/${train_aux_set}/data.json > "data/${train_set}_singlespkr/data.json"
 fi
-train_set=${train_set}_singlespkr
 
 # It takes about one day. If you just want to do end-to-end ASR without LM,
 # YOU CAN SKIP this and remove --rnnlm option in the recognition (stage 5)
@@ -192,8 +196,9 @@ if [ -z ${lmtag} ]; then
     fi
 fi
 # lmexpname=train_rnnlm_${backend}_${lmtag}
-# lmexpdir=exp/${lmexpname}
-lmexpdir=exp/train_rnnlm_pytorch_lm_word65000
+lmexpname=train_transformer_lm_pytorch
+lmexpdir=exp/${lmexpname}
+#lmexpdir=exp/train_rnnlm_pytorch_lm_word65000
 mkdir -p ${lmexpdir}
 
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
@@ -223,10 +228,10 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         cat ${lmdatadir}/train_trans.txt ${lmdatadir}/train_others.txt > ${lmdatadir}/train.txt
     fi
 
-    # use only 1 gpu
-    if [ ${ngpu} -gt 1 ]; then
-        echo "LM training does not support multi-gpu. signle gpu will be used."
-    fi
+#    # use only 1 gpu
+#    if [ ${ngpu} -gt 1 ]; then
+#        echo "LM training does not support multi-gpu. signle gpu will be used."
+#    fi
     ${cuda_cmd} --gpu ${ngpu} ${lmexpdir}/train.log \
         lm_train.py \
         --config ${lm_config} \
@@ -238,18 +243,18 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         --train-label ${lmdatadir}/train.txt \
         --valid-label ${lmdatadir}/valid.txt \
         --resume ${lm_resume} \
-        --layer ${lm_layers} \
-        --unit ${lm_units} \
-        --opt ${lm_opt} \
-        --sortagrad ${lm_sortagrad} \
-        --batchsize ${lm_batchsize} \
-        --epoch ${lm_epochs} \
-        --patience ${lm_patience} \
-        --maxlen ${lm_maxlen} \
         --dict ${lmdict}
+#        --unit ${lm_units} \
+#        --opt ${lm_opt} \
+#        --sortagrad ${lm_sortagrad} \
+#        --batchsize ${lm_batchsize} \
+#        --epoch ${lm_epochs} \
+#        --patience ${lm_patience} \
+#        --maxlen ${lm_maxlen} \
 fi
 
 
+train_set=${train_set}_singlespkr
 if [ -z ${tag} ]; then
     if [ -n "$init_from_mdl" ]; then
         expname=seed${seed}_${train_set}2c_${backend}_$(basename ${train_config%.*})_$(basename ${preprocess_config%.*})_init_from_mdl${lr:+_lr$lr} #_wpd_souden

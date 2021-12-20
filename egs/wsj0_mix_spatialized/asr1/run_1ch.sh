@@ -22,7 +22,7 @@ seed=1
 do_delta=false
 
 # configuration path
-preprocess_config=conf/preprocess.yaml
+preprocess_config=conf/preprocess_narawpe.yaml
 train_config=conf/tuning/train_multispkr_1ch.yaml
 decode_config=conf/tuning/decode_pytorch_transformer.yaml
 
@@ -195,18 +195,18 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
 
     for setname in ${train_set} ${train_dev} ${train_test}; do
         local/data2json.sh --cmd "${train_cmd}" --nj 30 --num-spkrs 2 \
-            --category "multichannel" \
+            --category "multichannel_reverb" \
             --preprocess-conf ${preprocess_config} --filetype sound.hdf5 \
             --feat data/${setname}/feats.scp --nlsyms ${nlsyms} \
-            --out data/${setname}/data.json data/${setname} ${dict}
+            --out data/${setname}/data2.json data/${setname} ${dict}
     done
 
     setname=tr_spatialized_anechoic_multich_16k_max
     local/data2json.sh --cmd "${train_cmd}" --nj 30 --num-spkrs 2 \
-            --category "multichannel" \
+            --category "multichannel_anechoic" \
             --preprocess-conf ${preprocess_config} --filetype sound.hdf5 \
             --feat data/${setname}/feats.scp --nlsyms ${nlsyms} \
-            --out data/${setname}/data.json data/${setname} ${dict}
+            --out data/${setname}/data2.json data/${setname} ${dict}
 
 #    local/data2json.sh --cmd "${train_cmd}" --nj 30 --num-spkrs 1 \
 #        --category "singlespeaker" \
@@ -214,10 +214,10 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
 #        --feat data/${train_aux_set}/feats.scp --nlsyms ${nlsyms} \
 #        --out data/${train_aux_set}/data.json data/${train_aux_set} ${dict}
 #
-#    mkdir -p "data/tr_spatialized_anechoic_reverb_16k_max_singlespkr"
-#    concatjson.py data/tr_spatialized_reverb_multich_16k_max/data.json data/train_si284/data.json data/tr_spatialized_anechoic_multich_16k_max/data.json > "data/tr_spatialized_anechoic_reverb_16k_max_singlespkr/data.json"
+   mkdir -p "data/tr_spatialized_anechoic_reverb_16k_max"
+   concatjson.py data/tr_spatialized_reverb_multich_16k_max/data2.json data/tr_spatialized_anechoic_multich_16k_max/data2.json > "data/tr_spatialized_anechoic_reverb_16k_max/data.json"
 fi
-#train_set=tr_spatialized_anechoic_reverb_16k_max_singlespkr
+train_set=tr_spatialized_anechoic_reverb_16k_max
 
 # It takes about one day. If you just want to do end-to-end ASR without LM,
 # YOU CAN SKIP this and remove --rnnlm option in the recognition (stage 5)
@@ -396,6 +396,7 @@ fi
 if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     echo "stage 5: Decoding"
     nj=32
+    test_nmics=
 
     pids=() # initialize pids
     for rtask in ${train_dev} ${train_test}; do
@@ -443,7 +444,6 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             --result-label ${expdir}/${decode_dir}/data.JOB.json \
             --model ${expdir}/results/${recog_model} \
             ${seed:+--seed $seed} \
-            --use-WPD-frontend False \
             ${use_vad_mask:+--use-vad-mask True} \
             ${test_btaps:+--test-btaps $test_btaps} \
             ${test_nmics:+--test-nmics $test_nmics} \
