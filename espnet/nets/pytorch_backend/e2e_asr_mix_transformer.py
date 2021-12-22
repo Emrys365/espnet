@@ -324,7 +324,7 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
                 for b in range(xs_pad.shape[0]):
                     hs_pad[b, frame_offsets[b] : frame_offsets[b] + truncate_frames] = hs_pad_chunk[b]
                 if is_list:
-                    hs_pad = hs_pad.unbind(dim=2)
+                    hs_pad = list(hs_pad.unbind(dim=2))
             else:
                 hs_pad, hlens, mask = self.frontend(xs_pad, ilens)
             if isinstance(hs_pad, list):
