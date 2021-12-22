@@ -16,7 +16,7 @@ test_nmics=1 #2 #6
 
 # data scheduling
 multich_epochs=
-jobname=asr_mix_SMS
+jobname=asr_mix_WSJ0
 if [ -n "$use_transformer" ]; then
     jobname=${jobname}T
 fi

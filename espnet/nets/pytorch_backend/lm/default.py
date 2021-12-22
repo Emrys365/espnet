@@ -10,6 +10,7 @@ import torch.nn.functional as F
 
 from espnet.nets.lm_interface import LMInterface
 from espnet.nets.pytorch_backend.e2e_asr import to_device
+from espnet.nets.pytorch_backend.lm.transformer import TransformerLM
 from espnet.nets.scorer_interface import BatchScorerInterface
 
 
@@ -207,6 +208,7 @@ class ClassifierWithState(nn.Module):
         self.loss = None
         self.label_key = label_key
         self.predictor = predictor
+        self.is_transformer_wordlm = hasattr(predictor, "wordlm") and isinstance(predictor.wordlm, TransformerLM)
 
     def forward(self, state, *args, **kwargs):
         """Compute the loss value for an input and label pair.
@@ -250,7 +252,7 @@ class ClassifierWithState(nn.Module):
         self.loss = self.lossfun(self.y, t)
         return state, self.loss
 
-    def predict(self, state, x):
+    def predict(self, state, x, prev_word_seq=None):
         """Predict log probabilities for given state and input x using the predictor.
 
         :param torch.Tensor state : The current state
@@ -259,10 +261,16 @@ class ClassifierWithState(nn.Module):
         :rtype (torch.Tensor, torch.Tensor)
         """
         if hasattr(self.predictor, "normalized") and self.predictor.normalized:
-            return self.predictor(state, x)
+            if self.is_transformer_wordlm:
+                return self.predictor(state, x, prev_word_seq=prev_word_seq)
+            else:
+                return self.predictor(state, x)
         else:
             state, z = self.predictor(state, x)
-            return state, F.log_softmax(z, dim=1)
+            if self.is_transformer_wordlm:
+                return state, F.log_softmax(z, dim=1, prev_word_seq=prev_word_seq)
+            else:
+                return state, F.log_softmax(z, dim=1)
 
     def buff_predict(self, state, x, n):
         """Predict new tokens from buffered inputs."""
@@ -279,7 +287,7 @@ class ClassifierWithState(nn.Module):
 
         return new_state, torch.cat(new_log_y)
 
-    def final(self, state, index=None):
+    def final(self, state, index=None, prev_word_seq=None):
         """Predict final log probabilities for given state using the predictor.
 
         :param state: The state
@@ -288,9 +296,15 @@ class ClassifierWithState(nn.Module):
         """
         if hasattr(self.predictor, "final"):
             if index is not None:
-                return self.predictor.final(state[index])
+                if self.is_transformer_wordlm:
+                    return self.predictor.final(state[index], prev_word_seq=prev_word_seq)
+                else:
+                    return self.predictor.final(state[index])
             else:
-                return self.predictor.final(state)
+                if self.is_transformer_wordlm:
+                    return self.predictor.final(state, prev_word_seq=prev_word_seq)
+                else:
+                    return self.predictor.final(state)
         else:
             return 0.0
 

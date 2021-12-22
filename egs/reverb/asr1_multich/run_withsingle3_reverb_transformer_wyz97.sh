@@ -47,7 +47,7 @@ lm_resume=          # specify a snapshot file to resume LM training
 lmtag=              # tag for managing LMs
 
 # decoding parameter
-lm_weight=1.0
+lm_weight=1.2
 beam_size=30
 penalty=0.0
 maxlenratio=0.0

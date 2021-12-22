@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from espnet.lm.lm_utils import make_lexical_tree
+from espnet.nets.pytorch_backend.lm.transformer import TransformerLM
 from espnet.nets.pytorch_backend.nets_utils import to_device
 
 
@@ -137,16 +138,21 @@ class LookAheadWordLM(nn.Module):
         self.zero_tensor = torch.FloatTensor([self.zero])
         self.normalized = True
 
-    def forward(self, state, x):
+    def forward(self, state, x, prev_word_seq=None):
         # update state with input label x
         if state is None:  # make initial states and cumlative probability vector
             self.var_word_eos = to_device(self, self.var_word_eos)
             self.var_word_unk = to_device(self, self.var_word_eos)
             self.zero_tensor = to_device(self, self.zero_tensor)
-            wlm_state, z_wlm = self.wordlm(None, self.var_word_eos)
+            if isinstance(self.wordlm, TransformerLM):
+                z_wlm, wlm_state = self.wordlm.score(self.var_word_eos, None, None)
+                z_wlm = z_wlm.unsqueeze(0)
+            else:
+                wlm_state, z_wlm = self.wordlm(None, self.var_word_eos)
             cumsum_probs = torch.cumsum(F.softmax(z_wlm, dim=1), dim=1)
             new_node = self.lexroot
             xi = self.space
+            prev_word_seq = [self.var_word_eos] # (wyz97) for TransformerLM only
         else:
             wlm_state, cumsum_probs, node = state
             xi = int(x)
@@ -155,8 +161,14 @@ class LookAheadWordLM(nn.Module):
                     w = to_device(self, torch.LongTensor([node[1]]))
                 else:  # this node is not a word end, which means <unk>
                     w = self.var_word_unk
+                prev_word_seq = prev_word_seq + [w] # (wyz97) for TransformerLM only
                 # update wordlm state and cumlative probability vector
-                wlm_state, z_wlm = self.wordlm(wlm_state, w)
+                if isinstance(self.wordlm, TransformerLM):
+                    w_ = torch.as_tensor(prev_word_seq, device=w.device)
+                    z_wlm, wlm_state = self.wordlm.score(w_, wlm_state, None)
+                    z_wlm = z_wlm.unsqueeze(0)
+                else:
+                    wlm_state, z_wlm = self.wordlm(wlm_state, w)
                 cumsum_probs = torch.cumsum(F.softmax(z_wlm, dim=1), dim=1)
                 new_node = self.lexroot  # move to the tree root
             elif node is not None and xi in node[0]:  # intra-word transition
@@ -167,7 +179,10 @@ class LookAheadWordLM(nn.Module):
                 log_y = to_device(
                     self, torch.full((1, self.subword_dict_size), self.logzero)
                 )
-                return (wlm_state, None, None), log_y
+                if isinstance(self.wordlm, TransformerLM):
+                    return (wlm_state, None, None), log_y, prev_word_seq
+                else:
+                    return (wlm_state, None, None), log_y
 
         if new_node is not None:
             succ, wid, wids = new_node
@@ -181,7 +196,10 @@ class LookAheadWordLM(nn.Module):
                 log_y = to_device(
                     self, torch.full((1, self.subword_dict_size), self.logzero)
                 )
-                return (wlm_state, cumsum_probs, new_node), log_y
+                if isinstance(self.wordlm, TransformerLM):
+                    return (wlm_state, cumsum_probs, new_node), log_y, prev_word_seq
+                else:
+                    return (wlm_state, cumsum_probs, new_node), log_y
             # set <unk> probability as a default value
             unk_prob = (
                 cumsum_probs[:, self.word_unk] - cumsum_probs[:, self.word_unk - 1]
@@ -208,13 +226,21 @@ class LookAheadWordLM(nn.Module):
             log_y = torch.log(torch.max(y, self.zero_tensor))  # clip to avoid log(0)
         else:  # if no path in the tree, transition probability is one
             log_y = to_device(self, torch.zeros(1, self.subword_dict_size))
-        return (wlm_state, cumsum_probs, new_node), log_y
+        if isinstance(self.wordlm, TransformerLM):
+            return (wlm_state, cumsum_probs, new_node), log_y, prev_word_seq
+        else:
+            return (wlm_state, cumsum_probs, new_node), log_y
 
-    def final(self, state):
+    def final(self, state, prev_word_seq=None):
         wlm_state, cumsum_probs, node = state
         if node is not None and node[1] >= 0:  # check if the node is word end
             w = to_device(self, torch.LongTensor([node[1]]))
         else:  # this node is not a word end, which means <unk>
             w = self.var_word_unk
-        wlm_state, z_wlm = self.wordlm(wlm_state, w)
+        if isinstance(self.wordlm, TransformerLM):
+            w_ = torch.as_tensor(prev_word_seq + [w], device=w.device)
+            z_wlm, wlm_state = self.wordlm.score(w_, wlm_state, None)
+            z_wlm = z_wlm.unsqueeze(0)
+        else:
+            wlm_state, z_wlm = self.wordlm(wlm_state, w)
         return float(F.log_softmax(z_wlm, dim=1)[:, self.word_eos])

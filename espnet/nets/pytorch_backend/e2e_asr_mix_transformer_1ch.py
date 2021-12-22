@@ -33,6 +33,7 @@ from espnet.nets.pytorch_backend.e2e_asr_mix import E2E as E2EASRMIX
 from espnet.nets.pytorch_backend.e2e_asr_mix import PIT
 from espnet.nets.pytorch_backend.e2e_asr_transformer import E2E as E2EASR
 from espnet.nets.pytorch_backend.frontends.feature_transform import feature_transform_for
+from espnet.nets.pytorch_backend.lm.transformer import TransformerLM
 from espnet.nets.pytorch_backend.nets_utils import get_subsample
 from espnet.nets.pytorch_backend.nets_utils import make_non_pad_mask
 from espnet.nets.pytorch_backend.nets_utils import th_accuracy
@@ -434,6 +435,8 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
         :return: N-best decoding results
         :rtype: list
         """
+        is_transformer_wordlm = rnnlm is not None and getattr(rnnlm, 'is_transformer_wordlm', False)
+
         if recog_args.ctc_weight > 0.0:
             lpz = self.ctc.log_softmax(enc_output)
             lpz = lpz.squeeze(0)
@@ -463,7 +466,10 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
 
         # initialize hypothesis
         if rnnlm:
-            hyp = {"score": 0.0, "yseq": [y], "rnnlm_prev": None}
+            if is_transformer_wordlm:
+                hyp = {'score': 0.0, 'yseq': [y], 'rnnlm_prev': None, 'prev_word_seq': None}
+            else:
+                hyp = {'score': 0.0, 'yseq': [y], 'rnnlm_prev': None}
         else:
             hyp = {"score": 0.0, "yseq": [y]}
         if lpz is not None:
@@ -504,7 +510,10 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
                     )[0]
 
                 if rnnlm:
-                    rnnlm_state, local_lm_scores = rnnlm.predict(hyp["rnnlm_prev"], vy)
+                    if is_transformer_wordlm:
+                        rnnlm_state, local_lm_scores, hyp['prev_word_seq'] = rnnlm.predict(hyp['rnnlm_prev'], vy, prev_word_seq=hyp['prev_word_seq'])
+                    else:
+                        rnnlm_state, local_lm_scores = rnnlm.predict(hyp['rnnlm_prev'], vy)
                     local_scores = (
                         local_att_scores + recog_args.lm_weight * local_lm_scores
                     )
@@ -544,6 +553,7 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
                     new_hyp["yseq"][len(hyp["yseq"])] = int(local_best_ids[0, j])
                     if rnnlm:
                         new_hyp["rnnlm_prev"] = rnnlm_state
+                        new_hyp['prev_word_seq'] = hyp['prev_word_seq']
                     if lpz is not None:
                         new_hyp["ctc_state_prev"] = ctc_states[joint_best_ids[0, j]]
                         new_hyp["ctc_score_prev"] = ctc_scores[joint_best_ids[0, j]]
@@ -579,9 +589,12 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
                     if len(hyp["yseq"]) > minlen:
                         hyp["score"] += (i + 1) * penalty
                         if rnnlm:  # Word LM needs to add final <eos> score
-                            hyp["score"] += recog_args.lm_weight * rnnlm.final(
-                                hyp["rnnlm_prev"]
-                            )
+                            if is_transformer_wordlm:
+                                hyp['score'] += recog_args.lm_weight * rnnlm.final(
+                                    hyp['rnnlm_prev'], prev_word_seq=hyp['prev_word_seq'])
+                            else:
+                                hyp['score'] += recog_args.lm_weight * rnnlm.final(
+                                    hyp['rnnlm_prev'])
                         ended_hyps.append(hyp)
                 else:
                     remained_hyps.append(hyp)

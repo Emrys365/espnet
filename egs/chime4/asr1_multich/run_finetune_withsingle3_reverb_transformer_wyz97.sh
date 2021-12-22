@@ -51,7 +51,7 @@ lm_resume=          # specify a snapshot file to resume LM training
 lmtag=              # tag for managing LMs
 
 # decoding parameter
-lm_weight=1.0
+lm_weight=1.2
 beam_size=30
 penalty=0.0
 maxlenratio=0.0
@@ -224,7 +224,9 @@ if [ -z ${lmtag} ]; then
 fi
 # lmexpname=train_rnnlm_${backend}_${lmtag}
 # lmexpdir=exp/${lmexpname}
-lmexpdir=exp/train_rnnlm_pytorch_lm_word65000
+lmexpname=train_transformer_lm_pytorch
+lmexpdir=exp/${lmexpname}
+# lmexpdir=exp/train_rnnlm_pytorch_lm_word65000
 mkdir -p ${lmexpdir}
 
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then

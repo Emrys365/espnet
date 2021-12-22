@@ -26,7 +26,7 @@ num_spkrs=1
 
 # decoding parameter
 use_wordlm=true     # false means to train/use a character LM
-lm_weight=1.0
+lm_weight=1.2
 ctc_weight=0.3
 recog_model=model.acc.best # set a model to be used for decoding: 'model.acc.best' or 'model.loss.best'
 #recog_model=snapshot.ep.13
@@ -62,7 +62,9 @@ nlsyms=data/lang_1char/non_lang_syms.txt
 echo "dictionary: ${dict}"
 train_set=${train_set}_singlespkr
 
-lmexpdir=exp/train_rnnlm_pytorch_lm_word65000
+# lmexpdir=exp/train_rnnlm_pytorch_lm_word65000
+lmexpname=train_transformer_lm_pytorch
+lmexpdir=exp/${lmexpname}
 
 
 if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
