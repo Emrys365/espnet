@@ -147,12 +147,12 @@ class LookAheadWordLM(nn.Module):
             if isinstance(self.wordlm, TransformerLM):
                 z_wlm, wlm_state = self.wordlm.score(self.var_word_eos, None, None)
                 z_wlm = z_wlm.unsqueeze(0)
+                prev_word_seq = [self.var_word_eos] # (wyz97) for TransformerLM only
             else:
                 wlm_state, z_wlm = self.wordlm(None, self.var_word_eos)
             cumsum_probs = torch.cumsum(F.softmax(z_wlm, dim=1), dim=1)
             new_node = self.lexroot
             xi = self.space
-            prev_word_seq = [self.var_word_eos] # (wyz97) for TransformerLM only
         else:
             wlm_state, cumsum_probs, node = state
             xi = int(x)
@@ -161,9 +161,9 @@ class LookAheadWordLM(nn.Module):
                     w = to_device(self, torch.LongTensor([node[1]]))
                 else:  # this node is not a word end, which means <unk>
                     w = self.var_word_unk
-                prev_word_seq = prev_word_seq + [w] # (wyz97) for TransformerLM only
                 # update wordlm state and cumlative probability vector
                 if isinstance(self.wordlm, TransformerLM):
+                    prev_word_seq = prev_word_seq + [w] # (wyz97) for TransformerLM only
                     w_ = torch.as_tensor(prev_word_seq, device=w.device)
                     z_wlm, wlm_state = self.wordlm.score(w_, wlm_state, None)
                     z_wlm = z_wlm.unsqueeze(0)

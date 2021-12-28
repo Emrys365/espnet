@@ -297,7 +297,7 @@ def get_parser(parser=None, required=True):
         "--opt",
         default="adadelta",
         type=str,
-        choices=["adadelta", "adam", "noam"],
+        choices=["adadelta", "adam", "noam", "noam_reducelronplateau"],
         help="Optimizer",
     )
     parser.add_argument(
@@ -545,6 +545,7 @@ def get_parser(parser=None, required=True):
 
     parser.add_argument("--freeze-frontend", type=strtobool, default=False, help="whether to freeze the frontend parameters")
     parser.add_argument("--freeze-asr", type=strtobool, default=False, help="whether to freeze the ASR parameters")
+    parser.add_argument("--reducelronplateau", type=strtobool, default=False, help="whether to use the ReduceLROnPlateau scheduler")
     return parser
 
 

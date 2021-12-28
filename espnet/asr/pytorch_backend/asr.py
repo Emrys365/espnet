@@ -26,6 +26,8 @@ from torch.nn.parallel import data_parallel
 from espnet.asr.asr_utils import adadelta_eps_decay
 from espnet.asr.asr_utils import add_results_to_json
 from espnet.asr.asr_utils import CompareValueTrigger
+from espnet.asr.asr_utils import ReduceLROnPlateauTrigger
+from espnet.asr.asr_utils import reduce_lr
 from espnet.asr.asr_utils import format_mulenc_args
 from espnet.asr.asr_utils import get_model_conf
 from espnet.asr.asr_utils import plot_spectrogram
@@ -38,10 +40,12 @@ from espnet.asr.pytorch_backend.asr_init import load_trained_model
 from espnet.asr.pytorch_backend.asr_init import load_trained_modules
 import espnet.lm.pytorch_backend.extlm as extlm_pytorch
 from espnet.nets.asr_interface import ASRInterface
+from espnet.nets.lm_interface import dynamic_import_lm
 from espnet.nets.pytorch_backend.e2e_asr import pad_list
 import espnet.nets.pytorch_backend.lm.default as lm_pytorch
 from espnet.nets.pytorch_backend.streaming.segment import SegmentStreamingE2E
 from espnet.nets.pytorch_backend.streaming.window import WindowStreamingE2E
+from espnet.nets.pytorch_backend.transformer.optimizer import NoamOpt_ReduceLROnPlateau
 from espnet.transform.spectrogram import IStft
 from espnet.transform.transformation import Transformation
 from espnet.utils.cli_writers import file_writer_helper
@@ -451,6 +455,11 @@ def init_wpd_model_from_mvdr_wpe(model_path, target_model, freeze_parms=False):
     return target_model
 
 
+def get_optim_lr(trainer):
+    optim = trainer.updater.get_optimizer("main")
+    return optim.lr if hasattr(optim, "lr") else optim.param_groups[0]["lr"]
+
+
 def train(args):
     """Train with the given args.
 
@@ -608,6 +617,13 @@ def train(args):
 
         optimizer = get_std_opt(
             model, args.adim, args.transformer_warmup_steps, args.transformer_lr
+        )
+    elif args.opt == "noam_reducelronplateau":
+        from espnet.nets.pytorch_backend.transformer.optimizer import get_std_opt_reducelronplateau
+
+        optimizer = get_std_opt_reducelronplateau(
+            model, args.adim, args.transformer_warmup_steps, args.transformer_lr
+            #model, args.adim, args.transformer_lr, factor=0.1, mode='min', patience=10
         )
     else:
         raise NotImplementedError("unknown optimizer: " + args.opt)
@@ -878,6 +894,17 @@ def train(args):
                 ),
             )
 
+    if getattr(args, "reducelronplateau", False):
+        trainer.extend(
+            reduce_lr(trainer, factor=getattr(args, "reducelr_factor", 0.1), min_lr=0, eps=1e-8),
+            trigger=ReduceLROnPlateauTrigger(
+                "validation/main/loss",
+                mode=getattr(args, "reducelr_mode", "min"),
+                factor=getattr(args, "reducelr_factor", 0.1),
+                patience=getattr(args, "reducelr_patience", 10),
+            ),
+        )
+
     # Write a log of evaluation statistics for each epoch
     trainer.extend(
         extensions.LogReport(trigger=(args.report_interval_iters, "iteration"))
@@ -912,6 +939,24 @@ def train(args):
         report_keys.append("validation/main/cer")
     if args.report_wer:
         report_keys.append("validation/main/wer")
+
+    # add lr to reporter
+    trainer.extend(
+        extensions.observe_value(
+            "lr",
+            get_optim_lr,
+        ),
+        trigger=(args.report_interval_iters, "iteration"),
+    )
+    report_keys.append("lr")
+    trainer.extend(
+        extensions.PlotReport(
+            ["lr"],
+            "epoch",
+            file_name="lr_0.png",
+        )
+    )
+
     trainer.extend(
         extensions.PrintReport(report_keys),
         trigger=(args.report_interval_iters, "iteration"),
@@ -952,14 +997,19 @@ def recog(args):
             raise ValueError(
                 "use '--api v2' option to decode with non-default language model"
             )
-        rnnlm = lm_pytorch.ClassifierWithState(
-            lm_pytorch.RNNLM(
-                len(train_args.char_list),
-                rnnlm_args.layer,
-                rnnlm_args.unit,
-                getattr(rnnlm_args, "embed_unit", None),  # for backward compatibility
-            )
-        )
+        lm_model_module = getattr(rnnlm_args, "model_module", "default")
+        lm_class = dynamic_import_lm(lm_model_module, rnnlm_args.backend)
+        rnnlm = lm_class(len(train_args.char_list), rnnlm_args)
+        if lm_model_module != "default":
+            rnnlm = lm_pytorch.ClassifierWithState(rnnlm)
+        #rnnlm = lm_pytorch.ClassifierWithState(
+        #    lm_pytorch.RNNLM(
+        #        len(train_args.char_list),
+        #        rnnlm_args.layer,
+        #        rnnlm_args.unit,
+        #        getattr(rnnlm_args, "embed_unit", None),  # for backward compatibility
+        #    )
+        #)
         torch_load(args.rnnlm, rnnlm)
         rnnlm.eval()
     else:
@@ -969,14 +1019,22 @@ def recog(args):
         rnnlm_args = get_model_conf(args.word_rnnlm, args.word_rnnlm_conf)
         word_dict = rnnlm_args.char_list_dict
         char_dict = {x: i for i, x in enumerate(train_args.char_list)}
-        word_rnnlm = lm_pytorch.ClassifierWithState(
-            lm_pytorch.RNNLM(
-                len(word_dict),
-                rnnlm_args.layer,
-                rnnlm_args.unit,
-                getattr(rnnlm_args, "embed_unit", None),  # for backward compatibility
+        lm_model_module = getattr(rnnlm_args, "model_module", "default")
+        if lm_model_module != "default":
+            wordlm_class = dynamic_import_lm(lm_model_module, rnnlm_args.backend)
+            word_rnnlm = wordlm_class(len(word_dict), rnnlm_args)
+            torch_load(args.word_rnnlm, word_rnnlm)
+
+            word_rnnlm = lm_pytorch.ClassifierWithState(word_rnnlm)
+        else:
+            word_rnnlm = lm_pytorch.ClassifierWithState(
+                lm_pytorch.RNNLM(
+                    len(word_dict),
+                    rnnlm_args.layer,
+                    rnnlm_args.unit,
+                    getattr(rnnlm_args, "embed_unit", None),  # for backward compatibility
+                )
             )
-        )
         torch_load(args.word_rnnlm, word_rnnlm)
         word_rnnlm.eval()
 

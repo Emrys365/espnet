@@ -200,6 +200,11 @@ def init_wpd_model_from_mvdr_wpe(model_path, target_model, freeze_parms=False):
     return target_model
 
 
+def get_optim_lr(trainer):
+    optim = trainer.updater.get_optimizer("main")
+    return optim.lr if hasattr(optim, "lr") else optim.param_groups[0]["lr"]
+
+
 def train(args):
     """Train with the given args.
 
@@ -574,6 +579,24 @@ def train(args):
         report_keys.append('validation/main/cer')
     if args.report_wer:
         report_keys.append('validation/main/wer')
+
+    # add lr to reporter
+    trainer.extend(
+        extensions.observe_value(
+            "lr",
+            get_optim_lr,
+        ),
+        trigger=(args.report_interval_iters, "iteration"),
+    )
+    report_keys.append("lr")
+    trainer.extend(
+        extensions.PlotReport(
+            ["lr"],
+            "epoch",
+            file_name="lr_0.png",
+        )
+    )
+
     trainer.extend(extensions.PrintReport(
         report_keys), trigger=(args.report_interval_iters, 'iteration'))
 

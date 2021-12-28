@@ -333,6 +333,11 @@ def train(args):
             pass
 
 
+def get_optim_lr(trainer):
+    optim = trainer.updater.get_optimizer("main")
+    return optim.lr if hasattr(optim, "lr") else optim.param_groups[0]["lr"]
+
+
 def train_main_worker(args):
     """Training process with the given args.
 
@@ -794,6 +799,24 @@ def train_main_worker(args):
             report_keys.append('validation/main/cer')
         if args.report_wer:
             report_keys.append('validation/main/wer')
+
+    # add lr to reporter
+    trainer.extend(
+        extensions.observe_value(
+            "lr",
+            get_optim_lr,
+        ),
+        trigger=(args.report_interval_iters, "iteration"),
+    )
+    report_keys.append("lr")
+    trainer.extend(
+        extensions.PlotReport(
+            ["lr"],
+            "epoch",
+            file_name="lr_0.png",
+        )
+    )
+
         trainer.extend(extensions.PrintReport(
             report_keys), trigger=(args.report_interval_iters, 'iteration'))
 

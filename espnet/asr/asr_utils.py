@@ -7,7 +7,6 @@ import argparse
 import copy
 import json
 import logging
-
 # matplotlib related
 import os
 import shutil
@@ -15,17 +14,13 @@ import tempfile
 
 # chainer related
 import chainer
-
-from chainer import training
-from chainer.training import extension
-
-from chainer.serializers.npz import DictionarySerializer
-from chainer.serializers.npz import NpzDeserializer
-
 # io related
 import matplotlib
 import numpy as np
 import torch
+from chainer import training
+from chainer.serializers.npz import DictionarySerializer, NpzDeserializer
+from chainer.training import extension, trainer
 
 matplotlib.use("Agg")
 
@@ -77,6 +72,204 @@ class CompareValueTrigger(object):
 
     def _init_summary(self):
         self._summary = chainer.reporter.DictSummary()
+
+
+class ReduceLROnPlateauTrigger(object):
+    """Trigger invoked when key value getting no improvement for `patience` epochs than before.
+
+    Args:
+        key (str) : Key of value.
+        mode (str): One of `min`, `max`. In `min` mode, lr will
+            be reduced when the quantity monitored has stopped
+            decreasing; in `max` mode it will be reduced when the
+            quantity monitored has stopped increasing. Default: 'min'.
+        factor (float): Factor by which the learning rate will be
+            reduced. new_lr = lr * factor. Default: 0.1.
+        patience (int): Number of epochs with no improvement after
+            which learning rate will be reduced. For example, if
+            `patience = 2`, then we will ignore the first 2 epochs
+            with no improvement, and will only decrease the LR after the
+            3rd epoch if the loss still hasn't improved then.
+            Default: 10.
+        threshold (float): Threshold for measuring the new optimum,
+            to only focus on significant changes. Default: 1e-4.
+        threshold_mode (str): One of `rel`, `abs`. In `rel` mode,
+            dynamic_threshold = best * ( 1 + threshold ) in 'max'
+            mode or best * ( 1 - threshold ) in `min` mode.
+            In `abs` mode, dynamic_threshold = best + threshold in
+            `max` mode or best - threshold in `min` mode. Default: 'rel'.
+        cooldown (int): Number of epochs to wait before resuming
+            normal operation after lr has been reduced. Default: 0.
+        min_lr (float or list): A scalar or a list of scalars. A
+            lower bound on the learning rate of all param groups
+            or each group respectively. Default: 0.
+        eps (float): Minimal decay applied to lr. If the difference
+            between new and old lr is smaller than eps, the update is
+            ignored. Default: 1e-8.
+        trigger (tuple(int, str)) : Trigger that decide the comparison interval.
+
+    """
+
+    def __init__(
+        self, key, mode='min', factor=0.1, patience=10, threshold=1e-4,
+        threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-8, trigger=(1, "epoch")
+    ):
+        assert mode in ('min', 'max'), mode
+        assert threshold_mode in ('rel', 'abs'), threshold_mode
+        self._key = key
+        self._mode = mode
+        self._factor = factor
+        self._patience = patience
+        self._threshold = threshold
+        self._threshold_mode = threshold_mode
+        self._cooldown = cooldown
+        self._cooldown_counter = 0
+        self._min_lr = min_lr
+        self._eps = eps
+        self._best_value = None
+        self._num_bad_epochs = None
+        self._mode_worse = float('inf') if mode == 'min' else float('-inf')
+        self._interval_trigger = training.util.get_trigger(trigger)
+        self._init_summary()
+        self._reset()
+
+    @property
+    def in_cooldown(self):
+        return self._cooldown_counter > 0
+
+    def _reset(self):
+        """Resets num_bad_epochs counter and cooldown counter."""
+        self._best_value = self._mode_worse
+        self._cooldown_counter = 0
+        self._num_bad_epochs = 0
+
+    def __call__(self, trainer):
+        """Get value related to the key and compare with current value."""
+        observation = trainer.observation
+        summary = self._summary
+        key = self._key
+        if key in observation:
+            summary.add({key: observation[key]})
+
+        if not self._interval_trigger(trainer):
+            return False
+
+        stats = summary.compute_mean()
+        value = float(stats[key])  # copy to CPU
+        self._init_summary()
+
+        if self.is_better(value, self._best_value):
+            self._best_value = value
+            self._num_bad_epochs = 0
+        else:
+            self._num_bad_epochs += 1
+
+        if self._best_value is None:
+            # initialize best value
+            self._best_value = value
+            self._num_bad_epochs = 0
+        elif self.is_better(value, self._best_value):
+            self._best_value = value
+            self._num_bad_epochs = 0
+        else:
+            self._num_bad_epochs += 1
+
+        if self.in_cooldown:
+            self._cooldown_counter -= 1
+            self._num_bad_epochs = 0  # ignore any bad epochs in cooldown
+
+        if self._num_bad_epochs > self._patience:
+            # self._reduce_lr(trainer)
+            self._cooldown_counter = self._cooldown
+            self._num_bad_epochs = 0
+            return True
+        else:
+            return False
+
+    def is_better(self, a, best):
+        if self._mode == 'min' and self._threshold_mode == 'rel':
+            rel_epsilon = 1. - self._threshold
+            return a < best * rel_epsilon
+
+        elif self._mode == 'min' and self._threshold_mode == 'abs':
+            return a < best - self._threshold
+
+        elif self._mode == 'max' and self._threshold_mode == 'rel':
+            rel_epsilon = self._threshold + 1.
+            return a > best * rel_epsilon
+
+        else:  # mode == 'max' and epsilon_mode == 'abs':
+            return a > best + self.threshold
+
+    def _reduce_lr(self, trainer):
+        optimizer = trainer.updater.get_optimizer("main")
+        if hasattr(optimizer, "lr"):
+            old_lr = optimizer.lr
+            new_lr = max(old_lr * self._factor, self._min_lr)
+            if old_lr - new_lr > self._eps:
+                setattr(optimizer, "lr", new_lr)
+                print(
+                    'ReduceLROnPlateauTrigger: reducing learning rate'
+                    ' of group {} to {:.4e}.'.format(i, new_lr),
+                    flush=True
+                )
+        else:
+            for i, param_group in enumerate(optimizer.param_groups):
+                old_lr = float(param_group['lr'])
+                new_lr = max(old_lr * self._factor, self._min_lr)
+                if old_lr - new_lr > self._eps:
+                    param_group['lr'] = new_lr
+                    print(
+                        'ReduceLROnPlateauTrigger: reducing learning rate'
+                        ' of group {} to {:.4e}.'.format(i, new_lr),
+                        flush=True
+                    )
+
+    def _init_summary(self):
+        self._summary = chainer.reporter.DictSummary()
+
+
+def reduce_lr(factor=0.1, min_lr=0, eps=1e-8):
+    """Extension to perform adadelta eps decay.
+
+    Args:
+        eps_decay (float): Decay rate of eps.
+
+    Returns:
+        An extension function.
+
+    """
+
+    @training.make_extension(trigger=(1, "epoch"))
+    def reduce_lr(trainer):
+        _reduce_lr(trainer, factor=factor, min_lr=min_lr, eps=eps)
+
+    return reduce_lr
+
+
+def _reduce_lr(trainer, factor=0.1, min_lr=0, eps=1e-8):
+    optimizer = trainer.updater.get_optimizer("main")
+    if hasattr(optimizer, "lr"):
+        old_lr = optimizer.lr
+        new_lr = max(old_lr * factor, min_lr)
+        if old_lr - new_lr > eps:
+            setattr(optimizer, "lr", new_lr)
+            print(
+                'ReduceLROnPlateauTrigger: reducing learning rate'
+                ' to {:.4e}.'.format(new_lr),
+                flush=True
+            )
+    else:
+        for i, param_group in enumerate(optimizer.param_groups):
+            old_lr = float(param_group['lr'])
+            new_lr = max(old_lr * factor, min_lr)
+            if old_lr - new_lr > eps:
+                param_group['lr'] = new_lr
+                print(
+                    'ReduceLROnPlateauTrigger: reducing learning rate'
+                    ' of group {} to {:.4e}.'.format(i, new_lr),
+                    flush=True
+                )
 
 
 class PlotAttentionReport(extension.Extension):
@@ -378,12 +571,12 @@ def _adam_lr_decay(trainer, eps_decay):
     if hasattr(optimizer, "lr"):
         current_lr = optimizer.lr
         setattr(optimizer, "lr", current_lr * eps_decay)
-        logging.info("adam lr decayed to " + str(optimizer.lr))
+        logging.warning("adam lr decayed to " + str(optimizer.lr))
     # pytorch
     else:
         for p in optimizer.param_groups:
             p["lr"] *= eps_decay
-            logging.info("adam lr decayed to " + str(p["lr"]))
+            logging.warning("adam lr decayed to " + str(p["lr"]))
 
 
 def torch_snapshot(savefun=torch.save, filename="snapshot.ep.{.updater.epoch}"):
