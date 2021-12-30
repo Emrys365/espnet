@@ -137,7 +137,7 @@ def get_parser(parser=None, required=True):
                         help='The configuration file for the pre-processing')
     # optimization related
     parser.add_argument('--opt', default='adadelta', type=str,
-                        choices=['adadelta', 'adam', 'noam'],
+                        choices=['adadelta', 'adam', 'noam', 'noam_reducelronplateau'],
                         help='Optimizer')
     parser.add_argument('--accum-grad', default=1, type=int,
                         help='Number of gradient accumuration')
@@ -292,6 +292,7 @@ def get_parser(parser=None, required=True):
         type=strtobool,
         help="Whether to ignore NaN gradients in CTC",
     )
+    parser.add_argument("--reducelronplateau", type=strtobool, default=False, help="whether to use the ReduceLROnPlateau scheduler")
     return parser
 
 

@@ -69,7 +69,7 @@ def filtered_keys(key):
 def main(args):
     logging.basicConfig(
         level=logging.DEBUG,
-        format='[%(asctime)s %(filename)s %(levelname)s %(message)s]',
+        format='[%(asctime)s %(filename)s %(levelname)s] %(message)s',
         datefmt='%d %b %Y %H:%M:%S',
     )
 

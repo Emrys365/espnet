@@ -25,6 +25,7 @@ wpd_opt=
 use_linear_project=
 normalization=
 test_oracle=
+reducelronplateau=
 
 use_vad_mask=
 
@@ -158,6 +159,7 @@ sbatch ${sbatch_opt} -J $jobname -o $log_file \
     --ngpu $ngpu \
     --seed $seed \
     ${lr:+--lr $lr} \
+    ${reducelronplateau:+--reducelronplateau True} \
     ${use_frontend_for_mix:+--use-frontend-for-mix True} \
     ${use_wpd:+--use-wpd True} \
     ${wpd_opt:+--wpd-opt $wpd_opt} \

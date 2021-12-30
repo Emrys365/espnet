@@ -138,7 +138,7 @@ class RNN(torch.nn.Module):
         :return: batch of hidden state sequences (B, Tmax, eprojs)
         :rtype: torch.Tensor
         """
-        logging.debug(self.__class__.__name__ + " input lengths: " + str(ilens))
+        # logging.debug(self.__class__.__name__ + " input lengths: " + str(ilens))
         xs_pack = pack_padded_sequence(xs_pad, ilens.cpu(), batch_first=True)
         self.nbrnn.flatten_parameters()
         if prev_state is not None and self.nbrnn.bidirectional:

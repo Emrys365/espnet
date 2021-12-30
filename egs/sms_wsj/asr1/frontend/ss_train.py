@@ -22,6 +22,8 @@ import torch
 from espnet.asr.asr_utils import adadelta_eps_decay
 
 from espnet.asr.asr_utils import CompareValueTrigger
+from espnet.asr.asr_utils import ReduceLROnPlateauTrigger
+from espnet.asr.asr_utils import reduce_lr
 from espnet.asr.asr_utils import get_model_conf
 from espnet.asr.asr_utils import restore_snapshot
 from espnet.asr.asr_utils import snapshot_object
@@ -64,6 +66,11 @@ def load_trained_model(model_path):
     torch_load(model_path, model)
 
     return model, train_args
+
+
+def get_optim_lr(trainer):
+    optim = trainer.updater.get_optimizer("main")
+    return optim.lr if hasattr(optim, "lr") else optim.param_groups[0]["lr"]
 
 
 def train(args):
@@ -148,6 +155,13 @@ def train(args):
     elif args.opt == 'noam':
         from espnet.nets.pytorch_backend.transformer.optimizer import get_std_opt
         optimizer = get_std_opt(model, args.adim, args.transformer_warmup_steps, args.transformer_lr)
+    elif args.opt == "noam_reducelronplateau":
+        from espnet.nets.pytorch_backend.transformer.optimizer import get_std_opt_reducelronplateau
+
+        optimizer = get_std_opt_reducelronplateau(
+            model, args.adim, args.transformer_warmup_steps, args.transformer_lr
+            #model, args.adim, args.transformer_lr, factor=0.1, mode='min', patience=10
+        )
     else:
         raise NotImplementedError("unknown optimizer: " + args.opt)
 
@@ -267,6 +281,17 @@ def train(args):
                                'validation/main/loss',
                                lambda best_value, current_value: best_value < current_value))
 
+    if getattr(args, "reducelronplateau", False):
+        trainer.extend(
+            reduce_lr(factor=getattr(args, "reducelr_factor", 0.1), min_lr=0, eps=1e-8),
+            trigger=ReduceLROnPlateauTrigger(
+                "validation/main/loss",
+                mode=getattr(args, "reducelr_mode", "min"),
+                factor=getattr(args, "reducelr_factor", 0.1),
+                patience=getattr(args, "reducelr_patience", 10),
+            ),
+        )
+
 #    # learning rate scheduler
 #    def lr_drop(trainer):
 #        # lower the learning rate every 2 epochs by multiplying 0.98 with the current learning rate.
@@ -285,6 +310,24 @@ def train(args):
             'eps', lambda trainer: trainer.updater.get_optimizer('main').param_groups[0]["eps"]),
             trigger=(args.report_interval_iters, 'iteration'))
         report_keys.append('eps')
+
+    # add lr to reporter
+    trainer.extend(
+        extensions.observe_value(
+            "lr",
+            get_optim_lr,
+        ),
+        trigger=(args.report_interval_iters, "iteration"),
+    )
+    report_keys.append("lr")
+    trainer.extend(
+        extensions.PlotReport(
+            ["lr"],
+            "epoch",
+            file_name="lr_0.png",
+        )
+    )
+
     trainer.extend(extensions.PrintReport(
         report_keys), trigger=(args.report_interval_iters, 'iteration'))
     trainer.extend(extensions.ProgressBar(update_interval=args.report_interval_iters))

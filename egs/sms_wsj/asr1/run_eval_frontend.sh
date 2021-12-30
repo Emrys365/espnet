@@ -23,6 +23,7 @@ recog_model=
 
 # frontend network architecture
 use_vad_mask=
+reducelronplateau=
 
 
 . utils/parse_options.sh || exit 1;

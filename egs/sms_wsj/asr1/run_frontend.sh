@@ -37,6 +37,7 @@ target_is_singlech=
 enh_loss_type=
 # whether to use oracle IRM for enhancement
 test_oracle=
+reducelronplateau=
 
 # use VAD-like masks instead of T-F masks, only works when use_padertorch_frontend is True
 use_vad_mask=
@@ -244,6 +245,7 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         ${use_frontend_for_mix:+--use-wpe-for-mix True} \
         ${wpd_opt:+--wpd-opt $wpd_opt} \
         ${lr:+--lr $lr} \
+        ${reducelronplateau:+--reducelronplateau True} \
         ${use_linear_project:+--project True} \
         ${normalization:+--normalization True} \
         ${target_is_mask:+--target-is-mask True} \

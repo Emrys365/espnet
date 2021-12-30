@@ -123,7 +123,7 @@ for rtask in ${train_dev} ${train_test}; do
                 for i in $(seq "${_nj}"); do
                     cat "${expdir}/${output_dir}/${metric}.${i}.scp"
                 done | LC_ALL=C sort -k1 > "${expdir}/${output_dir}/${metric}.scp"
-                rm "${expdir}/${output_dir}"/${metric}*.scp
+                rm "${expdir}/${output_dir}"/${metric}.*.scp
             done
         fi
         wait
