@@ -24,6 +24,8 @@ from espnet.asr.asr_mix_utils import add_results_to_json_wer
 from espnet.asr.asr_utils import adadelta_eps_decay
 
 from espnet.asr.asr_utils import CompareValueTrigger
+from espnet.asr.asr_utils import ReduceLROnPlateauTrigger
+from espnet.asr.asr_utils import reduce_lr
 from espnet.asr.asr_utils import get_model_conf
 from espnet.asr.asr_utils import restore_snapshot
 from espnet.asr.asr_utils import snapshot_object
@@ -347,6 +349,13 @@ def train(args):
     elif args.opt == 'noam':
         from espnet.nets.pytorch_backend.transformer.optimizer import get_std_opt
         optimizer = get_std_opt(model, args.adim, args.transformer_warmup_steps, args.transformer_lr)
+    elif args.opt == "noam_reducelronplateau":
+        from espnet.nets.pytorch_backend.transformer.optimizer import get_std_opt_reducelronplateau
+
+        optimizer = get_std_opt_reducelronplateau(
+            model, args.adim, args.transformer_warmup_steps, args.transformer_lr
+            #model, args.adim, args.transformer_lr, factor=0.1, mode='min', patience=10
+        )
     else:
         raise NotImplementedError("unknown optimizer: " + args.opt)
 
@@ -358,7 +367,7 @@ def train(args):
             logging.error(f"You need to install apex for --train-dtype {args.train_dtype}. "
                           "See https://github.com/NVIDIA/apex#linux")
             raise e
-        if args.opt == 'noam':
+        if args.opt in ("noam", "noam_reducelronplateau"):
             model, optimizer.optimizer = amp.initialize(model, optimizer.optimizer, opt_level=args.train_dtype)
         else:
             model, optimizer = amp.initialize(model, optimizer, opt_level=args.train_dtype)
@@ -563,6 +572,17 @@ def train(args):
                            trigger=CompareValueTrigger(
                                'validation/main/loss',
                                lambda best_value, current_value: best_value < current_value))
+
+    if getattr(args, "reducelronplateau", False):
+        trainer.extend(
+            reduce_lr(factor=getattr(args, "reducelr_factor", 0.1), min_lr=0, eps=1e-8),
+            trigger=ReduceLROnPlateauTrigger(
+                "validation/main/loss",
+                mode=getattr(args, "reducelr_mode", "min"),
+                factor=getattr(args, "reducelr_factor", 0.1),
+                patience=getattr(args, "reducelr_patience", 10),
+            ),
+        )
 
     # Write a log of evaluation statistics for each epoch
     trainer.extend(extensions.LogReport(trigger=(args.report_interval_iters, 'iteration')))

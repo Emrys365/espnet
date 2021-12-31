@@ -45,7 +45,6 @@ from espnet.nets.pytorch_backend.e2e_asr import pad_list
 import espnet.nets.pytorch_backend.lm.default as lm_pytorch
 from espnet.nets.pytorch_backend.streaming.segment import SegmentStreamingE2E
 from espnet.nets.pytorch_backend.streaming.window import WindowStreamingE2E
-from espnet.nets.pytorch_backend.transformer.optimizer import NoamOpt_ReduceLROnPlateau
 from espnet.transform.spectrogram import IStft
 from espnet.transform.transformation import Transformation
 from espnet.utils.cli_writers import file_writer_helper
@@ -638,7 +637,7 @@ def train(args):
                 "See https://github.com/NVIDIA/apex#linux"
             )
             raise e
-        if args.opt == "noam":
+        if args.opt in ("noam", "noam_reducelronplateau"):
             model, optimizer.optimizer = amp.initialize(
                 model, optimizer.optimizer, opt_level=args.train_dtype
             )

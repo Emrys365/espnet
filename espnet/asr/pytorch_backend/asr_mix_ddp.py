@@ -27,6 +27,8 @@ from espnet.asr.asr_utils import adadelta_eps_decay
 from espnet.asr.asr_utils import adam_lr_decay
 
 from espnet.asr.asr_utils import CompareValueTrigger
+from espnet.asr.asr_utils import ReduceLROnPlateauTrigger
+from espnet.asr.asr_utils import reduce_lr
 from espnet.asr.asr_utils import get_model_conf
 from espnet.asr.asr_utils import restore_snapshot
 from espnet.asr.asr_utils import snapshot_object
@@ -65,6 +67,7 @@ from espnet2.utils.build_dataclass import build_dataclass
 
 import matplotlib
 matplotlib.use('Agg')
+
 
 if LooseVersion(torch.__version__) >= LooseVersion("1.5.0"):
     from torch.multiprocessing.spawn import ProcessContext
@@ -215,9 +218,14 @@ def init_wpd_model_from_mvdr_wpe(model_path, target_model, freeze_parms=False, m
     if freeze_parms:
         for name, param in target_model.named_parameters():
             if name in filtered_dict and re.search(r'(encoder|decoder|ctc)', name):
-                    param.requires_grad = False
+                param.requires_grad = False
 
     return target_model
+
+
+def get_optim_lr(trainer):
+    optim = trainer.updater.get_optimizer("main")
+    return optim.lr if hasattr(optim, "lr") else optim.param_groups[0]["lr"]
 
 
 def train(args):
@@ -489,6 +497,13 @@ def train_main_worker(args):
     elif args.opt == 'noam':
         from espnet.nets.pytorch_backend.transformer.optimizer import get_std_opt
         optimizer = get_std_opt(model, args.adim, args.transformer_warmup_steps, args.transformer_lr)
+    elif args.opt == "noam_reducelronplateau":
+        from espnet.nets.pytorch_backend.transformer.optimizer import get_std_opt_reducelronplateau
+
+        optimizer = get_std_opt_reducelronplateau(
+            model, args.adim, args.transformer_warmup_steps, args.transformer_lr
+            #model, args.adim, args.transformer_lr, factor=0.1, mode='min', patience=10
+        )
     else:
         raise NotImplementedError("unknown optimizer: " + args.opt)
 
@@ -500,7 +515,7 @@ def train_main_worker(args):
             logging.error(f"You need to install apex for --train-dtype {args.train_dtype}. "
                           "See https://github.com/NVIDIA/apex#linux")
             raise e
-        if args.opt == 'noam':
+        if args.opt in ("noam", "noam_reducelronplateau"):
             model, optimizer.optimizer = amp.initialize(model, optimizer.optimizer, opt_level=args.train_dtype)
         else:
             model, optimizer = amp.initialize(model, optimizer, opt_level=args.train_dtype)
@@ -735,6 +750,17 @@ def train_main_worker(args):
             )
         logging.warning("optimize with adam lr decay 0.5")
 
+    if getattr(args, "reducelronplateau", False):
+        trainer.extend(
+            reduce_lr(factor=getattr(args, "reducelr_factor", 0.1), min_lr=0, eps=1e-8),
+            trigger=ReduceLROnPlateauTrigger(
+                "validation/main/loss",
+                mode=getattr(args, "reducelr_mode", "min"),
+                factor=getattr(args, "reducelr_factor", 0.1),
+                patience=getattr(args, "reducelr_patience", 10),
+            ),
+        )
+
     # Write a log of evaluation statistics for each epoch
     if not distributed_option.distributed or distributed_option.dist_rank == 0:
         trainer.extend(extensions.LogReport(trigger=(args.report_interval_iters, 'iteration')))
@@ -752,22 +778,22 @@ def train_main_worker(args):
         if args.report_wer:
             report_keys.append('validation/main/wer')
 
-    # add lr to reporter
-    trainer.extend(
-        extensions.observe_value(
-            "lr",
-            get_optim_lr,
-        ),
-        trigger=(args.report_interval_iters, "iteration"),
-    )
-    report_keys.append("lr")
-    trainer.extend(
-        extensions.PlotReport(
-            ["lr"],
-            "epoch",
-            file_name="lr_0.png",
+        # add lr to reporter
+        trainer.extend(
+            extensions.observe_value(
+                "lr",
+                get_optim_lr,
+            ),
+            trigger=(args.report_interval_iters, "iteration"),
         )
-    )
+        report_keys.append("lr")
+        trainer.extend(
+            extensions.PlotReport(
+                ["lr"],
+                "epoch",
+                file_name="lr_0.png",
+            )
+        )
 
         trainer.extend(extensions.PrintReport(
             report_keys), trigger=(args.report_interval_iters, 'iteration'))

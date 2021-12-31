@@ -29,6 +29,8 @@ from espnet.asr.asr_utils import adadelta_eps_decay
 from espnet.asr.asr_utils import adam_lr_decay
 from espnet.asr.asr_utils import add_results_to_json
 from espnet.asr.asr_utils import CompareValueTrigger
+from espnet.asr.asr_utils import ReduceLROnPlateauTrigger
+from espnet.asr.asr_utils import reduce_lr
 from espnet.asr.asr_utils import format_mulenc_args
 from espnet.asr.asr_utils import get_model_conf
 from espnet.asr.asr_utils import plot_spectrogram
@@ -760,6 +762,13 @@ def train_main_worker(args):
         optimizer = get_std_opt(
             model, args.adim, args.transformer_warmup_steps, args.transformer_lr
         )
+    elif args.opt == "noam_reducelronplateau":
+        from espnet.nets.pytorch_backend.transformer.optimizer import get_std_opt_reducelronplateau
+
+        optimizer = get_std_opt_reducelronplateau(
+            model, args.adim, args.transformer_warmup_steps, args.transformer_lr
+            #model, args.adim, args.transformer_lr, factor=0.1, mode='min', patience=10
+        )
     else:
         raise NotImplementedError("unknown optimizer: " + args.opt)
 
@@ -773,7 +782,7 @@ def train_main_worker(args):
                 "See https://github.com/NVIDIA/apex#linux"
             )
             raise e
-        if args.opt == "noam":
+        if args.opt in ("noam", "noam_reducelronplateau"):
             model, optimizer.optimizer = amp.initialize(
                 model, optimizer.optimizer, opt_level=args.train_dtype
             )
@@ -1071,7 +1080,18 @@ def train_main_worker(args):
             )
         logging.warning("optimize with adam lr decay 0.5")
 
-    
+
+    if getattr(args, "reducelronplateau", False):
+        trainer.extend(
+            reduce_lr(factor=getattr(args, "reducelr_factor", 0.1), min_lr=0, eps=1e-8),
+            trigger=ReduceLROnPlateauTrigger(
+                "validation/main/loss",
+                mode=getattr(args, "reducelr_mode", "min"),
+                factor=getattr(args, "reducelr_factor", 0.1),
+                patience=getattr(args, "reducelr_patience", 10),
+            ),
+        )
+
     if not distributed_option.distributed or distributed_option.dist_rank == 0:
         # Write a log of evaluation statistics for each epoch
         trainer.extend(

@@ -473,7 +473,7 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
         else:
             hyp = {"score": 0.0, "yseq": [y]}
         if lpz is not None:
-            ctc_prefix_score = CTCPrefixScore(lpz.detach().numpy(), 0, self.eos, numpy)
+            ctc_prefix_score = CTCPrefixScore(lpz.detach().cpu().numpy(), 0, self.eos, numpy)
             hyp["ctc_state_prev"] = ctc_prefix_score.initial_state()
             hyp["ctc_score_prev"] = 0.0
             if ctc_weight != 1.0:
@@ -506,7 +506,7 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
                     local_att_scores = traced_decoder(ys, ys_mask, enc_output)[0]
                 else:
                     local_att_scores = self.decoder.forward_one_step(
-                        ys, ys_mask, enc_output
+                        ys.to(enc_output.device), ys_mask.to(enc_output.device), enc_output.to(enc_output.device)
                     )[0]
 
                 if rnnlm:
@@ -525,12 +525,12 @@ class E2E(E2EASR, ASRInterface, torch.nn.Module):
                         local_att_scores, ctc_beam, dim=1
                     )
                     ctc_scores, ctc_states = ctc_prefix_score(
-                        hyp["yseq"], local_best_ids[0], hyp["ctc_state_prev"]
+                        hyp["yseq"], local_best_ids[0].cpu(), hyp["ctc_state_prev"]
                     )
                     local_scores = (1.0 - ctc_weight) * local_att_scores[
                         :, local_best_ids[0]
-                    ] + ctc_weight * torch.from_numpy(
-                        ctc_scores - hyp["ctc_score_prev"]
+                    ] + ctc_weight * torch.as_tensor(
+                        ctc_scores - hyp["ctc_score_prev"], device=enc_output.device
                     )
                     if rnnlm:
                         local_scores += (

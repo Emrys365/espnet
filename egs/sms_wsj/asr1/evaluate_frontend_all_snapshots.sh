@@ -132,7 +132,7 @@ for rtask in ${train_dev} ${train_test}; do
         for metric in si_sdr sdr sir sar pesq stoi srmr; do
             awk 'BEGIN{sum=0}
                 {n=0;score=0;for (i=2; i<=NF; i+=1){n+=1;score+=$i}; sum+=score/n}
-                END{printf ("%.2f\n",sum/NR)}' ${expdir}/${output_dir}/${metric}.scp \
+                END{printf ("%.5f\n",sum/NR)}' ${expdir}/${output_dir}/${metric}.scp \
             > "${expdir}/${output_dir}/result_${metric}.txt"
         done
     done
