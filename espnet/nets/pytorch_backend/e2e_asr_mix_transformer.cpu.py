@@ -539,7 +539,8 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
                     new_hyp['yseq'][len(hyp['yseq'])] = int(local_best_ids[0, j])
                     if rnnlm:
                         new_hyp['rnnlm_prev'] = rnnlm_state
-                        new_hyp['prev_word_seq'] = hyp['prev_word_seq']
+                        if is_transformer_wordlm:
+                            new_hyp['prev_word_seq'] = hyp['prev_word_seq']
                     if lpz is not None:
                         new_hyp['ctc_state_prev'] = ctc_states[joint_best_ids[0, j]]
                         new_hyp['ctc_score_prev'] = ctc_scores[joint_best_ids[0, j]]
