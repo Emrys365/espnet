@@ -1083,11 +1083,11 @@ def train_main_worker(args):
 
     if getattr(args, "reducelronplateau", False):
         trainer.extend(
-            reduce_lr(factor=getattr(args, "reducelr_factor", 0.1), min_lr=0, eps=1e-8),
+            reduce_lr(factor=getattr(args, "reducelr_factor", 0.5), min_lr=0, eps=1e-8),
             trigger=ReduceLROnPlateauTrigger(
                 "validation/main/loss",
                 mode=getattr(args, "reducelr_mode", "min"),
-                factor=getattr(args, "reducelr_factor", 0.1),
+                factor=getattr(args, "reducelr_factor", 0.5),
                 patience=getattr(args, "reducelr_patience", 10),
             ),
         )

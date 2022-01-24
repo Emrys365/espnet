@@ -222,7 +222,7 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
 #        --out data/${setname}/data.json data/${setname} ${dict}
 #
    mkdir -p data/tr_spatialized_reverb_anechoic_multich
-   concatjson.py data/tr_spatialized_reverb_multich/data2.json data/tr_spatialized_anechoic_multich/data2.json > data/tr_spatialized_reverb_anechoic_multich/data.json
+   concatjson.py data/tr_spatialized_reverb_multich/data2.json data/tr_spatialized_anechoic_multich/data2.json > data/tr_spatialized_reverb_anechoic_multich/data2.json
 fi
 train_set=tr_spatialized_reverb_anechoic_multich
 
@@ -374,7 +374,7 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         --minibatches ${N} \
         --verbose ${verbose} \
         --resume ${resume} \
-        --train-json ${datadir}/${train_set}/data.json \
+        --train-json ${datadir}/${train_set}/data2.json \
         --valid-json ${datadir}/${train_dev}/data.json \
         --preprocess-conf ${preprocess_config} \
         --num-spkrs ${num_spkrs} \
