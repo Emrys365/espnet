@@ -66,7 +66,9 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
 
         #### use CPU for inference
         ${decode_cmd} --qos qd3 ${expdir}/${output_dir}/eval_ss.log \
-            python3 frontend/eval_raw.py \
+            python3 frontend/eval_raw_v2.py \
+            --use-oracle-mask False \
+            --mask-type "PSM^2" \
             --data-dir data/${rtask} \
             --model-path ${expdir}/results/${recog_model} \
             --output-dir ${expdir}/${output_dir}/enhanced \
