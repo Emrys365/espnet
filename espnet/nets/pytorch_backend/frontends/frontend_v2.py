@@ -1,3 +1,4 @@
+from itertools import permutations
 from typing import List
 from typing import Optional
 from typing import Tuple
@@ -24,6 +25,168 @@ from espnet.nets.pytorch_backend.frontends.WPD_beamfomer_v6 import signal_framin
 from espnet.nets.pytorch_backend.frontends.dnn_beamformer import AttentionReference
 from espnet.nets.pytorch_backend.frontends.frontend_wpd_v5 import get_WPD_filter_conj
 from espnet.nets.pytorch_backend.nets_utils import make_pad_mask
+
+
+def find_peaks(
+    x,
+    cyclic: bool = False,
+    mph: Optional[float] = None,
+    mpd: int = 1,
+    threshold: float = 0.0,
+    edge: Optional[str] = "rising",
+    kpsh: bool = False,
+    valley: bool = False,
+    sort: str = "value",
+) -> torch.Tensor:
+    """Find peaks in data based on their amplitude and other features.
+
+    Args:
+        x : 1D array_like input data.
+        cyclic (bool): True to allow peaks/valleys at the beginning/end of `x`
+            by cyclicly repeat sequence `x`
+        mph (float):
+            if not None, only detect peaks (valleys) that are greater (smaller)
+            than minimum peak height (maximum peak height).
+        mpd : minimum distance (> 0) between adjacent peaks
+            only detect peaks that are at least separated by minimum peak distance
+            (in number of data)
+        threshold : minimum height difference between a peak and its adjacent samples
+            only detect peaks (valleys) that are greater (smaller) than `threshold`
+            in relation to their immediate neighbors.
+        edge (str): one of (None, 'rising', 'falling', 'both')
+            for a flat peak:
+                - "rising":  keep only the rising edge
+                - "falling": keep only the falling edge
+                - "both":    keep both edges
+                -  None:     don't detect a flat peak
+        kpsh (bool): True to keep peaks with same height even if
+            they are closer than `mpd`.
+        valley (bool): True to find valleys (local minima) instead of peaks.
+        sort (str): how to sort the returned indexes
+            "value": sort by the peak values in the descending order
+            "index": sort by the index value in the ascending order
+    Returns:
+        ind (torch.Tensor): 1D array_like indexes of the peaks in `x`.
+
+    References:
+        [1] https://github.com/LCAV/pyroomacoustics/blob/master/pyroomacoustics/doa/detect_peaks.py
+    """
+
+    def in1D(x, labels, invert=False):
+        """
+        Sub-optimal equivalent to numpy.in1D().
+        Hopefully this feature will be properly covered soon
+        c.f. https://github.com/pytorch/pytorch/issues/3025
+        Snippet by Aron Barreira Bordin
+        Args:
+            x (Tensor): Tensor to search values in
+            labels (Tensor/List): 1D array of values to search for
+            invert (bool):
+                If True, the values in the returned array are inverted (that is,
+                False where an element of `x` is in `labels` and True otherwise).
+
+        Returns:
+            Tensor: Boolean tensor y of same shape as x, with y[ind] = True if x[ind] in labels
+
+        Example:
+            >>> in1D(torch.FloatTensor([1, 2, 0, 3]), [2, 3])
+            FloatTensor([False, True, False, True])
+        """
+        mapping = torch.zeros_like(x).byte()
+        for label in labels:
+            mapping = mapping | x.eq(label)
+        return mapping if invert else ~mapping
+
+    assert edge in ("rising", "falling", "both", None), edge
+    # x = torch.atleast_1d(x).to(dtype=torch.float64)
+    x = torch.as_tensor(x, dtype=torch.float64)
+    if len(x) < 3:
+        # too few samples to find a peak
+        return torch.as_tensor([], dtype=int)
+    if valley:
+        x = -x
+    # find indexes of all peaks (x[1:] - x[:-1])
+    # dx = torch.diff(x, n=1)
+    dx = x[1:] - x[:-1]
+    # cyclicly repeat `x` at the beginning/end
+    dx0 = (x[0] - x[-1] if cyclic else 0)[None]
+    # handle NaN's
+    indnan = torch.where(torch.isnan(x))[0]
+    if indnan.size(0):
+        x[indnan] = float("inf")
+        dx[torch.where(torch.isnan(dx))[0]] = float("inf")
+
+    # index of None/raising/falling edges
+    ine, ire, ife = torch.as_tensor([[], [], []], dtype=int)
+    if edge is not None:
+        ine = torch.where(
+            (torch.cat((dx, dx0)) < 0) & (torch.cat((dx0, dx)) > 0)
+        )[0]
+    else:
+        if edge in ("rising", "both"):
+            ire = torch.where(
+                (torch.cat((dx, dx0)) <= 0) & (torch.cat((dx0, dx)) > 0)
+            )[0]
+        if edge in ("falling", "both"):
+            ife = torch.where(
+                (torch.cat((dx, dx0)) < 0) & (torch.cat((dx0, dx)) >= 0)
+            )[0]
+    ind = torch.unique(torch.cat((ine, ire, ife)))
+    # handle NaN's
+    if ind.size(0) and indnan.size(0):
+        # NaN's and values close to NaN's cannot be peaks
+        ind = ind[
+            in1D(
+                ind,
+                torch.unique(torch.cat((indnan, indnan - 1, indnan + 1))),
+                invert=True,
+            )
+        ]
+    if not cyclic:
+        # first and last values of x cannot be peaks
+        if ind.size(0) and ind[0] == 0:
+            ind = ind[1:]
+        if ind.size(0) and ind[-1] == x.size(0) - 1:
+            ind = ind[:-1]
+    # remove peaks < minimum peak height
+    # or remove valleys > maximum peak height
+    if ind.size(0) and mph is not None:
+        ind = ind[x[ind] >= mph] if valley else ind[x[ind] <= mph]
+    # remove peaks - neighbors < threshold
+    # or remove valleys - neighbors > threshold
+    if ind.size(0) and threshold > 0:
+        if valley:
+            # dx = torch.vstack([x[ind] - x[ind - 1], x[ind] - x[ind + 1]]).max(dim=0)
+            dx = torch.cat([(x[ind] - x[ind - 1])[None, :], (x[ind] - x[ind + 1])[None, :]], dim=0).max(dim=0)
+            ind = torch.index_select(ind, 0, torch.where(dx <= threshold)[0])
+        else:
+            # dx = torch.vstack([x[ind] - x[ind - 1], x[ind] - x[ind + 1]]).min(dim=0)
+            dx = torch.cat([(x[ind] - x[ind - 1])[None, :], (x[ind] - x[ind + 1])[None, :]], dim=0).min(dim=0)
+            ind = torch.index_select(ind, 0, torch.where(dx > threshold)[0])
+
+    if not ind.size(0):
+        return torch.as_tensor([], dtype=int)
+    # detect small peaks closer than minimum peak distance
+    if mpd > 1:
+        ind = ind[torch.argsort(x[ind])].flip(0)  # sort ind by peak height
+        idel = torch.zeros_like(ind, dtype=bool)
+        for i in range(ind.size(0)):
+            if not idel[i]:
+                # keep peaks with the same height if kpsh is True
+                idel = idel | (ind >= ind[i] - mpd) & (ind <= ind[i] + mpd) & (
+                    x[ind[i]] > x[ind] if kpsh else True
+                )
+                idel[i] = 0  # Keep current peak
+        # remove the small peaks
+        ind = ind[~idel]
+        if sort == "index":
+            # sort indexes by their occurrence
+            ind = torch.sort(ind)
+    elif sort == "value":
+        # sort indexes by their peak height
+        ind = ind[torch.argsort(x[ind])].flip(0)
+
+    return ind
 
 
 class Frontend(nn.Module):
@@ -92,10 +255,10 @@ class Frontend(nn.Module):
                 self.iterations = 2
                 logging.warning('Using {}-iteration Nara-WPE'.format(self.iterations))
 
+        self.ref_channel = ref_channel
+        logging.warning('Ref channel is {}'.format(ref_channel))
         if self.use_beamformer:
             self.ref = AttentionReference(idim, badim) if ref_channel < 0 else None
-            self.ref_channel = ref_channel
-            logging.warning('Ref channel is {}'.format(ref_channel))
             if beamformer_type not in ('mvdr', 'mpdr', 'wmpdr', 'mvdr_souden', 'mpdr_souden', 'wmpdr_souden', 'wpd_souden', 'wpd'):
                 raise ValueError(
                     "Not supporting beamformer_type={}".format(beamformer_type)
@@ -547,6 +710,202 @@ class Frontend(nn.Module):
         else:
             h = h.float()
         return h, ilens, mask
+
+    def get_steering_vector(
+        self,
+        relative_mic_angle: torch.Tensor,
+        relative_mic_dist: torch.Tensor,
+        doa: torch.Tensor,
+        freq: torch.Tensor,
+        inverse: bool = False,
+        sound_velocity: float = 343,
+    ) -> torch.Tensor:
+        """Return the normalized steering vector given the array geometry and DOA.
+
+        Args:
+            relative_mic_angle (torch.Tensor): relative angular distances (in degrees)
+                                            between each mic and ref mic
+            relative_mic_dist (torch.Tensor): relative distances (in meters) between
+                                            each mic and array center
+            doa (torch.Tensor): a list of direction of arrivals in degrees (-180, 180]
+            freq (torch.Tensor): frequency bins in Hz
+            inverse (bool): True to inverse the phase shift
+            sound_velocity (float): sound velocity in meters/second
+        Returns:
+            sv (ComplexTensor): list of steering vectors corresponding to the list of doas
+                    All steering vectors are normalized so that the `ref_mic`-th
+                    element of each steering vector is 1. (num_doa, num_freq, num_mic)
+        """
+        PI = numpy.pi
+        # (num_doa, num_mic)
+        delta_ang = doa.unsqueeze(dim=1) - relative_mic_angle.unsqueeze(dim=0)
+        # relative time delay in seconds
+        delay = relative_mic_dist * torch.cos(delta_ang / 180.0 * PI) / sound_velocity
+        # (num_doa, num_freq, num_mic)
+        signed_2pi = 2 * PI if inverse else -2 * PI
+        phase_shift = torch.einsum("f,dc->dfc", freq, signed_2pi * delay)
+        # sv = exp(j 2pi f delay)
+        sv = ComplexTensor(torch.cos(phase_shift), torch.sin(phase_shift))
+        return sv
+
+    def _weighted_srp_phat(self, signal, sv, doa, mask=None):
+        """Steered Response Power PHAse Transform (SRP-PHAT)"""
+        # sv difference between i- and j-th channels (num_doa, F, C, C)
+        # only take the elements above the 1st diagnoal for removing redundancy, e.g.:
+        #  | 0  x  x  x |
+        #  | 0  0  x  x |
+        #  | 0  0  0  x |
+        #  | 0  0  0  0 |
+        sv_ij = FC.einsum("dfi,dfj->dfij", sv, sv.conj())
+        sv_ij = ComplexTensor(
+            torch.triu(sv_ij.real, diagonal=1),
+            torch.triu(sv_ij.imag, diagonal=1),
+        )
+
+        phase = signal / signal.abs().clamp_min(1e-10)
+        # IPD between j- and i-th channels (F, C, C)
+        if mask is not None:
+            cc_ji = FC.einsum("tfj,tfi->fji", phase * mask.unsqueeze(-1), phase.conj()) / phase.size(0)
+        else:
+            cc_ji = FC.einsum("tfj,tfi->fji", phase, phase.conj()) / phase.size(0)
+        cc_ji = ComplexTensor(
+            torch.triu(cc_ji.real, diagonal=1),
+            torch.triu(cc_ji.imag, diagonal=1),
+        )
+
+        # cross-correlation (num_doa, F, C, C) -> (num_doa,)
+        # This is equivalent to `np.real(sv_ij[:, None, ...] * cc_ji[None, ...])`
+        # but avoids computing the imaginary part that we end up discarding
+        R = torch.einsum("dfij,fij->d", sv_ij.real, cc_ji.real) - torch.einsum(
+            "dfij,fij->d", sv_ij.imag, cc_ji.imag
+        )
+        peak_indices = find_peaks(R, cyclic=True, edge="both", sort="value")
+        if len(peak_indices) == 0:
+            return None
+        doa_hat = doa[peak_indices[0]]
+        return doa_hat
+
+    def _resolve_frequency_permutation(
+        self,
+        x: ComplexTensor,
+        enhanced: List[ComplexTensor],
+        sensor_pos: List[List],
+        fs: int = 16000,
+        freq_min: float = 400,
+        freq_max: float = 4000,
+        resolution: float = 1.0,
+        sound_velocity: float = 343,
+        threshold: float = 180.0,
+    ):
+        # Mitigate the frequency permutation problem via DOA estimation
+        if isinstance(enhanced, ComplexTensor) or len(enhanced) <= 1:
+            return enhanced
+
+        # (B=1, T, C, F)
+        if x.dim() != 4:
+            raise ValueError(f'Input dim must be 4: {x.dim()}')
+        assert x.size(0) == enhanced[0].size(0) == 1, (x.shape, enhanced[0].shape)
+
+        ref_mic = 0
+        # sensor_pos = [
+        #    (3.957, 3.083, 1.517),  # (x, y, z)
+        #    (4.02, 3.161, 1.517),
+        #    (3.984, 3.254, 1.519),
+        #    (3.885, 3.27, 1.521),
+        #    (3.822, 3.192, 1.521),
+        #    (3.858, 3.099, 1.519),
+        #]
+        mics = torch.stack([torch.as_tensor(mic) for mic in sensor_pos], dim=0)
+        array_center = mics.mean(dim=0, keepdim=True)
+        relative_mics = mics - array_center
+        relative_mic_pos = FC.stack([ComplexTensor(*p[:2]) for p in relative_mics], dim=0)
+        # relative angle between mic_i and mic_ref
+        # relative_mic_angle = relative_mic_pos.angle().rad2deg()
+        M_180_PI = 57.295779513082320876798154814105170332405472466564
+        relative_mic_angle = relative_mic_pos.angle() * M_180_PI
+        # normalize the rotation so that the DOA of ref_mic w.r.t. array center is 0
+        mic_ref_rotation = relative_mic_angle[ref_mic]
+        relative_mic_angle = relative_mic_angle - mic_ref_rotation
+        relative_mic_dist = relative_mic_pos.abs()
+
+        # mask the multi-channel input signal based on the beamformed signals
+        masks = [
+            # (T, F)
+            (enh[0].abs() / x[0, :, self.ref_channel].abs().clamp(min=1.0e-08)).clamp(
+                min=1.0e-08, max=1.0
+            )
+            for enh in enhanced
+        ]
+
+        # (T, C, F) -> (T, F, C)
+        signal = x[0].permute(0, 2, 1)
+        freq = torch.linspace(0, fs // 2, signal.shape[1], dtype=signal.real.dtype)
+        freq = freq.to(device=signal.device)
+
+        num_doa = int(360 / resolution)
+        # (-180, 180]
+        doa = 180 - torch.arange(0, num_doa, dtype=freq.dtype).flip(0) * resolution
+        doa = doa.to(device=signal.device)
+        # (num_doa, F, C)
+        sv = self.get_steering_vector(
+            relative_mic_angle,
+            relative_mic_dist,
+            doa,
+            freq,
+            inverse=True,
+            sound_velocity=sound_velocity,
+        ).to(device=signal.device)
+
+        ffrom = torch.where(freq >= freq_min)[0][0]
+        fto = torch.where(freq <= freq_max)[0][-1] + 1
+
+        # obtain DOAs for all speakers based on a range of frequencies
+        doas = [
+            self._weighted_srp_phat(
+                signal[:, ffrom:fto], sv[:, ffrom:fto], doa, mask=mask[:, ffrom:fto]
+            )
+            for mask in masks
+        ]
+        if any([ang is None for ang in doas]):
+            print("Skipping due to the failure to find all DOAs")
+            return enhanced
+        doas = torch.as_tensor(doas)
+        all_permutations = list(permutations(range(len(doas))))
+
+        def pair_loss(permutation, ref, inf):
+            return sum(
+                [
+                    ((ref[s] - inf[t] + 180) % 360 - 180).abs()
+                    for s, t in enumerate(permutation)
+                ]
+            )
+
+        # (B=1, T, F, num_spk)
+        enhanced = FC.stack(enhanced, dim=-1)
+        # test DOA deviation for individual frequency bins
+        for f in range(signal.shape[1]):
+            doas_hat = [
+                self._weighted_srp_phat(
+                    signal[:, f:f+1], sv[:, f:f+1], doa, mask=mask[:, f:f+1]
+                )
+                for mask in masks
+            ]
+            if any([ang is None for ang in doas_hat]):
+                continue
+            doas_hat = torch.as_tensor(doas_hat)
+            losses = torch.stack(
+                [pair_loss(p, doas, doas_hat) for p in all_permutations], dim=0
+            )
+            loss, perm_ = torch.min(losses, dim=0)
+            if loss > threshold:
+                continue
+            perm = torch.tensor(
+                all_permutations[perm_], device=signal.device, dtype=torch.long
+            )
+            # exchange the frequency bin across the separated spectra
+            enhanced[:, :, f] = enhanced[:, :, f, perm]
+
+        return enhanced.unbind(-1)
 
 
 def frontend_for(args, idim):

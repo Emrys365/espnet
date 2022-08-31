@@ -75,6 +75,10 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             --output-dir ${expdir}/${output_dir}/enhanced \
             ${test_btaps:+--test-btaps $test_btaps} \
             ${test_nmics:+--test-nmics $test_nmics}
+
+            # --resolve-freq-perm True \
+            # --freq-perm-thres 180.0 \
+            # --sensor-pos-json data/${rtask}/sensor_pos.json
         wait
 
     ) &

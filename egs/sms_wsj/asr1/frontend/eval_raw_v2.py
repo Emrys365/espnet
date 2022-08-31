@@ -1,6 +1,7 @@
 import argparse
 from distutils.util import strtobool
 from itertools import chain
+import json
 import logging
 import os
 import yaml
@@ -160,6 +161,12 @@ def main(args):
                 utt, wavpath = line.split(maxsplit=1)
                 dataset.setdefault(utt, {})["noise"] = wavpath
 
+    if args.resolve_freq_perm:
+        print("Resolving frequency permutation problem via DOA estimation")
+        assert os.path.exists(args.sensor_pos_json), args.sensor_pos_json
+        with open(args.sensor_pos_json, "r") as f:
+            sensor_pos_info = json.load(f)
+
     if args.output_dir:
         # Prepare output directory for storing enhanced audios
         os.makedirs(args.output_dir, exist_ok=True)
@@ -247,6 +254,16 @@ def main(args):
 
         ilens = torch.LongTensor([xs.shape[1]], device=args.device)
         separated, _, predicted_masks = model.frontend(xs, ilens, masks=masks)
+        if args.resolve_freq_perm:
+            separated = model.frontend._resolve_frequency_permutation(
+                xs, separated, sensor_pos_info[utt],
+                fs=sr,
+                freq_min=400,
+                freq_max=4000,
+                resolution=1.0,
+                sound_velocity=343,
+                threshold=args.freq_perm_thres,
+            )
         if model.num_spkrs == 1:
             separated = [separated]
 
@@ -288,6 +305,16 @@ def main(args):
                 mask_speech = [m.permute(0, 3, 2, 1) for m in _create_mask_label(xs[..., ref_channel:ref_channel+1, :], separated, mask_type=args.mask_type)]
                 masks = mask_speech + mask_speech + mask_noise #[1 - m for m in mask_speech]
                 separated, _, predicted_masks = model.frontend(xs, ilens, masks=masks)
+                if args.resolve_freq_perm:
+                    separated = model.frontend._resolve_frequency_permutation(
+                        xs, separated, sensor_pos_info[utt],
+                        fs=sr,
+                        freq_min=400,
+                        freq_max=4000,
+                        resolution=1.0,
+                        sound_velocity=343,
+                        threshold=args.freq_perm_thres,
+                    )
                 if model.num_spkrs == 1:
                     separated = [separated]
 
@@ -421,5 +448,9 @@ if __name__ == "__main__":
     parser.add_argument("--write-scps", type=str2bool, default=False, help="Whether to write evaluation results in scp files")
     parser.add_argument("--write-scp-dir", type=str, default=None, help="Directory of the scp file to be written")
     parser.add_argument("--write-scp-suffix", type=str, default=".scp", help="Suffix of the scp file to be written")
+
+    parser.add_argument("--resolve-freq-perm", type=str2bool, default=False, help="Whether to resolve the frequency permutation problem via DOA estimation")
+    parser.add_argument("--freq-perm-thres", type=float, default=180.0, help="Threshold used when resolving the frequency permutation problem via DOA estimation")
+    parser.add_argument("--sensor-pos-json", type=str, default="", help="Path to the json file containing sensor position information for each sample")
     args = parser.parse_args()
     main(args)

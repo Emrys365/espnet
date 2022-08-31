@@ -693,7 +693,10 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
         logging.info('normalized log probability: ' + str(nbest_hyps[0]['score'] / len(nbest_hyps[0]['yseq'])))
         return nbest_hyps
 
-    def recognize(self, feat, recog_args, char_list=None, rnnlm=None, use_jit=False):
+    def recognize(
+        self, feat, recog_args, char_list=None, rnnlm=None, use_jit=False,
+        resolve_freq_perm=False, sensor_pos=None, freq_perm_thres=180.0, fs=16000
+    ):
         '''recognize feat
 
         :param ndnarray x: input acouctic feature (B, T, D) or (T, D)
@@ -711,12 +714,23 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
 
         h = to_device(self, to_torch_tensor(feat).float())
         # make a utt list (1) to use the same interface for encoder
-        hs = h.contiguous().unsqueeze(0)
+        xs = h.contiguous().unsqueeze(0)
 
         # 0. forward frontend
         if self.frontend is not None:
-            hs, hlens, mask = self.frontend(hs, ilens)
-            if isinstance(hs, list):
+            hs, hlens, mask = self.frontend(xs, ilens)
+            if resolve_freq_perm:
+                hs = self.frontend._resolve_frequency_permutation(
+                    xs, hs, sensor_pos,
+                    fs=fs,
+                    freq_min=400,
+                    freq_max=4000,
+                    resolution=1.0,
+                    sound_velocity=343,
+                    threshold=freq_perm_thres,
+                )
+            if isinstance(hs, (tuple, list)):
+                hs = list(hs)
                 hlens_n = [None] * self.num_spkrs
                 for i in range(self.num_spkrs):
                     hs[i], hlens_n[i] = self.feature_transform(hs[i].float(), hlens)
@@ -724,7 +738,7 @@ class E2E(E2E_ASR, ASRInterface, torch.nn.Module):
             else:
                 hs, hlens = self.feature_transform(hs.float(), hlens)
         else:
-            hs, hlens = hs.float(), ilens
+            hs, hlens = xs.float(), ilens
 
         #enc_output = self.encode(hs_pad).unsqueeze(0)
         #enc_output, _ = self.encoder(hs_pad, None)

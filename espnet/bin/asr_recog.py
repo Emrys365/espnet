@@ -195,6 +195,21 @@ def get_parser():
                         help='use the specified btaps for testing')
     parser.add_argument('--test-nmics', type=int, default=-1,
                         help='use the specified number of microphones for testing')
+
+    # Resolve the frequency permutation problem via DOA estimation (for T-F masking based beamforming)
+    parser.add_argument(
+        "--resolve-freq-perm", type=strtobool, default=False,
+        help="Whether to resolve the frequency permutation problem via DOA estimation"
+    )
+    parser.add_argument(
+        "--freq-perm-thres", type=float, default=180.0,
+        help="Threshold used when resolving the frequency permutation problem via DOA estimation"
+    )
+    parser.add_argument(
+        "--sensor-pos-json", type=str, default="",
+        help="Path to the json file containing sensor position information for each sample"
+    )
+    parser.add_argument("--fs", type=int, default=16000, help="Sampling rate of the data")
     return parser
 
 

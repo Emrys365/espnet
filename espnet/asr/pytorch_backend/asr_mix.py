@@ -705,6 +705,13 @@ def recog(args):
                 extlm_pytorch.LookAheadWordLM(word_rnnlm.predictor,
                                               word_dict, char_dict))
 
+    if args.resolve_freq_perm:
+        print("Resolving frequency permutation problem via DOA estimation")
+        assert args.batchsize == 0, args.batchsize
+        assert os.path.exists(args.sensor_pos_json), args.sensor_pos_json
+        with open(args.sensor_pos_json, "r") as f:
+            sensor_pos_info = json.load(f)
+
     # gpu
     if args.ngpu == 1:
         gpu_id = list(range(args.ngpu))
@@ -734,7 +741,16 @@ def recog(args):
                 logging.info('(%d/%d) decoding ' + name, idx, len(js.keys()))
                 batch = [(name, js[name])]
                 feat = load_inputs_and_targets(batch)[0][0]
-                nbest_hyps = model.recognize(feat, args, train_args.char_list, rnnlm)
+                if args.resolve_freq_perm:
+                    nbest_hyps = model.recognize(
+                        feat, args, train_args.char_list, rnnlm,
+                        resolve_freq_perm=True,
+                        sensor_pos=sensor_pos_info[name],
+                        freq_perm_thres=args.freq_perm_thres,
+                        fs=args.fs
+                    )
+                else:
+                    nbest_hyps = model.recognize(feat, args, train_args.char_list, rnnlm)
                 new_js[name] = add_results_to_json(js[name], nbest_hyps, train_args.char_list)
 
     else:
