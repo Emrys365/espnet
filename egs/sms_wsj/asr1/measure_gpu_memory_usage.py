@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 
 import torch
@@ -19,6 +20,7 @@ from espnet.utils.deterministic_utils import set_deterministic_pytorch
 from espnet.utils.dynamic_import import dynamic_import
 from espnet.utils.io_utils import LoadInputsAndTargets
 from espnet.utils.training.batchfy import make_batchset
+from espnet2.torch_utils.model_summary import model_summary
 
 
 def parse_args(cmd_args):
@@ -79,6 +81,7 @@ if __name__ == "__main__":
     cmd_args = sys.argv[1:]
     args = parse_args(cmd_args)
     assert args.batch_size == 1, args.batch_size
+    random.seed(args.seed)
 
     # load dictionary for debug log
     if args.dict is not None:
@@ -124,6 +127,16 @@ if __name__ == "__main__":
     else:
         dtype = torch.float32
     model = model.to(device=device, dtype=dtype)
+
+    # model summary
+    if getattr(model, "frontend", None) is not None:
+        msg = model_summary(model.frontend)
+        msg = re.search(r"Model summary:\n.*", msg, flags=re.DOTALL).group()
+        msg = "(Frontend) " + msg
+        print(msg)
+    msg = model_summary(model)
+    msg = re.search(r"Model summary:\n.*", msg, flags=re.DOTALL).group()
+    print(msg)
 
     if args.resolve_freq_perm:
         print("Resolving frequency permutation problem via DOA estimation")
@@ -183,7 +196,6 @@ if __name__ == "__main__":
     if getattr(args, 'test_nmics', -1) > 0:
         logging.warning('Using %d-channel data (randomly selected) for training' % args.test_nmics)
 
-
     model.train()
     # First run a random sample to warm up
     random_key = random.choice(js_keys)
@@ -228,11 +240,12 @@ if __name__ == "__main__":
 
     print({name: sum(l) / len(l) for name, l in mems.items()})
 
+
 """Usage example:
 
 # MVDR_Souden, T-F mask (2ch)
 CUDA_VISIBLE_DEVICES=0 python measure_gpu_memory_usage.py \
-    ---config conf/tuning/train_multispkr_trans_wyz97_padertorch_mvdr.yaml \
+    --config conf/tuning/train_multispkr_trans_wyz97_padertorch_mvdr.yaml \
     --model exp/seed1_train_si284_singlespkr2c_pytorch_train_multispkr_trans_wyz97_padertorch_mvdr_preprocess_uttcmvn_2ch_5taps_2021_05_22/results/model.acc.best \
     --ngpu 1 \
     --backend pytorch \
