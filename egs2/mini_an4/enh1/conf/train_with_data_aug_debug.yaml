@@ -30,7 +30,9 @@ preprocessor_conf:
     force_single_channel: true
     categories:
         - 1ch_16k
+        - 1ch_16k_reverb
         - 2ch_16k
+        - 2ch_16k_reverb
     data_aug_effects:   # no need to set the "sample_rate" argument for each effect here
         - [0.1, "contrast", {"enhancement_amount": 75.0}]
         - [0.1, "highpass", {"cutoff_freq": 5000, "Q": 0.707}]
